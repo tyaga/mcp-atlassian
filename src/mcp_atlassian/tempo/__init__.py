@@ -10,10 +10,18 @@ from .schedule import ScheduleMixin
 from .scope import TempoScope
 from .teams import TeamsMixin
 from .users import UsersMixin
+from .workload import WorkloadMixin
 from .worklogs import WorklogsMixin
 
 
-class TempoFetcher(TeamsMixin, UsersMixin, ScheduleMixin, PlanningMixin, WorklogsMixin):
+class TempoFetcher(
+    TeamsMixin,
+    UsersMixin,
+    ScheduleMixin,
+    PlanningMixin,
+    WorklogsMixin,
+    WorkloadMixin,
+):
     """Entry point for Tempo operations.
 
     Reuses the authenticated session and base URL of a ``JiraFetcher``; Tempo

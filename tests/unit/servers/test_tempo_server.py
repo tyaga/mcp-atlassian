@@ -17,6 +17,7 @@ from mcp_atlassian.models.tempo import (
     TempoTeamMember,
     TempoUserRef,
     TempoUserSchedule,
+    TempoWorkloadReport,
     TempoWorklog,
 )
 from mcp_atlassian.servers.context import MainAppContext
@@ -235,4 +236,43 @@ class TestWorklogsTool:
         assert data["worklogs"][0]["hours"] == 2.0
         fake_tempo_fetcher.get_worklogs.assert_called_once_with(
             [jane], date(2026, 3, 2), date(2026, 3, 3), issue_key=None
+        )
+
+
+@pytest.mark.anyio
+class TestWorkloadTool:
+    async def test_get_workload_tool(self, tempo_client, fake_tempo_fetcher):
+        scope = TempoScope(team=TempoTeam(id=7, name="Platform QA"), users=[])
+        fake_tempo_fetcher.resolve_scope.return_value = scope
+        fake_tempo_fetcher.get_workload.return_value = TempoWorkloadReport(
+            date_from="2026-03-02",
+            date_to="2026-03-08",
+            granularity="week",
+            daily_limit_hours=6.0,
+            summary={"overbooked": [], "free_capacity": [], "absent": []},
+        )
+        response = await tempo_client.call_tool(
+            "get_workload",
+            {
+                "team": "Platform QA",
+                "date_from": "2026-03-02",
+                "date_to": "2026-03-08",
+                "granularity": "week",
+                "role": "qa",
+                "daily_limit_hours": 6.0,
+            },
+        )
+        data = json.loads(response.content[0].text)
+        assert data["team"] == {"id": 7, "name": "Platform QA"}
+        assert data["granularity"] == "week"
+        assert data["summary"]["overbooked"] == []
+        fake_tempo_fetcher.resolve_scope.assert_called_once_with(
+            "Platform QA", None, role="qa"
+        )
+        fake_tempo_fetcher.get_workload.assert_called_once_with(
+            scope,
+            date(2026, 3, 2),
+            date(2026, 3, 8),
+            granularity="week",
+            daily_limit_hours=6.0,
         )

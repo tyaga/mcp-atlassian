@@ -256,3 +256,57 @@ async def get_worklogs(
             "worklogs": [worklog.to_simplified_dict() for worklog in worklogs],
         }
     )
+
+
+GRANULARITY_DESC = (
+    "Period size: 'day', 'week' (ISO weeks, labelled YYYY-Www) or 'total'."
+)
+
+
+@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+async def get_workload(
+    ctx: Context,
+    date_from: DATE_FROM_PARAM,
+    date_to: DATE_TO_PARAM,
+    team: TEAM_OPT_PARAM = None,
+    users: USERS_OPT_PARAM = None,
+    granularity: Annotated[str, Field(description=GRANULARITY_DESC)] = "day",
+    role: ROLE_PARAM = None,
+    daily_limit_hours: Annotated[
+        float,
+        Field(
+            description=(
+                "Cap on daily capacity. Capacity is the smaller of the user's "
+                "schedule norm and this value."
+            )
+        ),
+    ] = 8.0,
+) -> str:
+    """Compute planned load, free capacity and overbooking per user and period.
+
+    Per day: capacity = min(schedule norm, daily_limit_hours); free =
+    capacity - absence - planned (floored at 0); overbooked = planned + absence
+    - capacity (floored at 0). Status is one of non_working, overbooked, absent,
+    free, partial, full. Absences are inferred from plan item text.
+
+    Returns:
+        JSON ``{"from", "to", "granularity", "daily_limit_hours", "team"?,
+        "users": [{user, role, periods: [{period, from, to, capacity_hours,
+        planned_hours, absence_hours, free_hours, overbooked_hours, status,
+        items}]}], "summary": {overbooked, free_capacity, absent}}``.
+    """
+    start, end = parse_window(date_from, date_to)
+    tempo = await get_tempo_fetcher(ctx)
+    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users, role=role)
+    report = await run_jira_fetcher_call(
+        tempo.get_workload,
+        scope,
+        start,
+        end,
+        granularity=granularity,
+        daily_limit_hours=daily_limit_hours,
+    )
+    payload = report.to_simplified_dict()
+    if scope.team is not None:
+        payload["team"] = team_summary(scope.team)
+    return _dump(payload)
