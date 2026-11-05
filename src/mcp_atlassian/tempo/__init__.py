@@ -5,9 +5,12 @@ from __future__ import annotations
 from mcp_atlassian.jira import JiraFetcher
 
 from .client import TempoClient
+from .scope import TempoScope
+from .teams import TeamsMixin
+from .users import UsersMixin
 
 
-class TempoFetcher:
+class TempoFetcher(TeamsMixin, UsersMixin):
     """Entry point for Tempo operations.
 
     Reuses the authenticated session and base URL of a ``JiraFetcher``; Tempo
@@ -20,4 +23,4 @@ class TempoFetcher:
         self.client = TempoClient(jira.jira._session, self.base_url)
 
 
-__all__ = ["TempoClient", "TempoFetcher"]
+__all__ = ["TempoClient", "TempoFetcher", "TempoScope"]

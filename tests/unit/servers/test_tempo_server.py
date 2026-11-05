@@ -1,15 +1,20 @@
 """Tests for the Tempo MCP server instance and its tools."""
 
 import asyncio
-from unittest.mock import MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastmcp import Client
+from fastmcp.client import FastMCPTransport
 from fastmcp.tools import Tool as FastMCPTool
 from mcp.types import Tool as MCPTool
 
+from mcp_atlassian.models.tempo import TempoTeam, TempoTeamMember, TempoUserRef
 from mcp_atlassian.servers.context import MainAppContext
 from mcp_atlassian.servers.main import AtlassianMCP, main_lifespan
 from mcp_atlassian.servers.tempo import tempo_mcp
+from mcp_atlassian.tempo import TempoFetcher
 from mcp_atlassian.utils.toolsets import get_toolset_tag
 
 
@@ -75,3 +80,52 @@ class TestTempoToolVisibility:
         )
         tools = await server._list_tools_mcp()
         assert [tool.name for tool in tools] == ["tempo_list_teams"]
+
+
+@pytest.fixture
+def fake_tempo_fetcher():
+    fetcher = MagicMock(spec=TempoFetcher)
+    return fetcher
+
+
+@pytest.fixture
+async def tempo_client(fake_tempo_fetcher):
+    with patch(
+        "mcp_atlassian.servers.tempo.get_tempo_fetcher",
+        AsyncMock(return_value=fake_tempo_fetcher),
+    ):
+        async with Client(transport=FastMCPTransport(tempo_mcp)) as client:
+            yield client
+
+
+@pytest.mark.anyio
+class TestTeamTools:
+    async def test_list_teams_tool_returns_json(self, tempo_client, fake_tempo_fetcher):
+        fake_tempo_fetcher.list_teams.return_value = [
+            TempoTeam(id=7, name="Platform QA", summary="", lead="jdoe")
+        ]
+        response = await tempo_client.call_tool("list_teams", {"query": "qa"})
+        data = json.loads(response.content[0].text)
+        assert data == {
+            "teams": [{"id": 7, "name": "Platform QA", "summary": "", "lead": "jdoe"}]
+        }
+        fake_tempo_fetcher.list_teams.assert_called_once_with(query="qa")
+
+    async def test_get_team_members_tool(self, tempo_client, fake_tempo_fetcher):
+        team = TempoTeam(id=7, name="Platform QA")
+        fake_tempo_fetcher.resolve_team.return_value = team
+        fake_tempo_fetcher.get_team_members.return_value = [
+            TempoTeamMember(
+                user=TempoUserRef(key="JIRAUSER1001", username="jdoe"),
+                role="QA Engineer",
+            )
+        ]
+        response = await tempo_client.call_tool(
+            "get_team_members", {"team": "Platform QA", "role": "qa"}
+        )
+        data = json.loads(response.content[0].text)
+        assert data["team"] == {"id": 7, "name": "Platform QA"}
+        assert data["members"][0]["user"]["username"] == "jdoe"
+        fake_tempo_fetcher.get_team_members.assert_called_once_with(
+            team, role="qa", active_only=True
+        )
