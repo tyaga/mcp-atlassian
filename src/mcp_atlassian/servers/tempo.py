@@ -12,6 +12,7 @@ from pydantic import Field
 from mcp_atlassian.servers.async_utils import run_jira_fetcher_call
 from mcp_atlassian.servers.dependencies import get_tempo_fetcher
 from mcp_atlassian.servers.error_handling import ErrorPreservingFastMCP
+from mcp_atlassian.tempo import TempoScope
 from mcp_atlassian.tempo.common import parse_window
 from mcp_atlassian.tempo.teams import team_summary
 
@@ -57,6 +58,36 @@ DATE_TO_PARAM = Annotated[
         )
     ),
 ]
+TEAM_OPT_PARAM = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Tempo team id or name. Provide either 'team' or 'users', not both."
+        )
+    ),
+]
+USERS_OPT_PARAM = Annotated[
+    list[str] | None,
+    Field(
+        description=(
+            "User identifiers (username, key, display name or e-mail). "
+            "Provide either 'team' or 'users', not both."
+        )
+    ),
+]
+ISSUE_KEY_PARAM = Annotated[
+    str | None,
+    Field(description="Keep only rows for this issue key, e.g. 'PROJ-123'."),
+]
+
+
+def _scope_header(scope: TempoScope) -> dict[str, Any]:
+    header: dict[str, Any] = {
+        "users": [user.to_simplified_dict() for user in scope.users],
+    }
+    if scope.team is not None:
+        header["team"] = team_summary(scope.team)
+    return header
 
 
 def _dump(data: dict[str, Any]) -> str:
@@ -143,5 +174,54 @@ async def get_user_schedule(
             "from": start.isoformat(),
             "to": end.isoformat(),
             "schedules": [schedule.to_simplified_dict() for schedule in schedules],
+        }
+    )
+
+
+@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+async def get_plans(
+    ctx: Context,
+    date_from: DATE_FROM_PARAM,
+    date_to: DATE_TO_PARAM,
+    team: TEAM_OPT_PARAM = None,
+    users: USERS_OPT_PARAM = None,
+    issue_key: ISSUE_KEY_PARAM = None,
+    include_absences: Annotated[
+        bool,
+        Field(
+            description=(
+                "Include plan items that look like absences (vacation, sick "
+                "leave, day off) according to TEMPO_ABSENCE_PATTERN."
+            )
+        ),
+    ] = True,
+) -> str:
+    """Get planned time from Tempo Planner for a team or a list of users.
+
+    One entry per day per user per plan item. ``is_absence`` is inferred from
+    the item summary/description, so treat it as a hint.
+
+    Returns:
+        JSON ``{"from", "to", "team"?, "users", "plans": [{day, user, issue_key,
+        summary, project_key, plan_type, planned_hours, description, plan_start,
+        plan_end, allocation_id, is_absence, issue_url}]}``.
+    """
+    start, end = parse_window(date_from, date_to)
+    tempo = await get_tempo_fetcher(ctx)
+    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users)
+    plans = await run_jira_fetcher_call(
+        tempo.get_plans,
+        scope,
+        start,
+        end,
+        issue_key=issue_key,
+        include_absences=include_absences,
+    )
+    return _dump(
+        {
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            **_scope_header(scope),
+            "plans": [plan.to_simplified_dict() for plan in plans],
         }
     )

@@ -5,13 +5,14 @@ from __future__ import annotations
 from mcp_atlassian.jira import JiraFetcher
 
 from .client import TempoClient
+from .planning import PlanningMixin
 from .schedule import ScheduleMixin
 from .scope import TempoScope
 from .teams import TeamsMixin
 from .users import UsersMixin
 
 
-class TempoFetcher(TeamsMixin, UsersMixin, ScheduleMixin):
+class TempoFetcher(TeamsMixin, UsersMixin, ScheduleMixin, PlanningMixin):
     """Entry point for Tempo operations.
 
     Reuses the authenticated session and base URL of a ``JiraFetcher``; Tempo

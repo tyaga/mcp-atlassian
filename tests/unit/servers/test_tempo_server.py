@@ -12,6 +12,7 @@ from fastmcp.tools import Tool as FastMCPTool
 from mcp.types import Tool as MCPTool
 
 from mcp_atlassian.models.tempo import (
+    TempoPlanItem,
     TempoTeam,
     TempoTeamMember,
     TempoUserRef,
@@ -20,7 +21,7 @@ from mcp_atlassian.models.tempo import (
 from mcp_atlassian.servers.context import MainAppContext
 from mcp_atlassian.servers.main import AtlassianMCP, main_lifespan
 from mcp_atlassian.servers.tempo import tempo_mcp
-from mcp_atlassian.tempo import TempoFetcher
+from mcp_atlassian.tempo import TempoFetcher, TempoScope
 from mcp_atlassian.utils.toolsets import get_toolset_tag
 
 
@@ -169,4 +170,44 @@ class TestScheduleTool:
             await tempo_client.call_tool(
                 "get_user_schedule",
                 {"users": ["jdoe"], "date_from": "2026-05-04", "date_to": "bad"},
+            )
+
+
+@pytest.mark.anyio
+class TestPlansTool:
+    async def test_get_plans_tool_passes_scope_and_filters(
+        self, tempo_client, fake_tempo_fetcher
+    ):
+        scope = TempoScope(team=TempoTeam(id=7, name="Platform QA"), users=[])
+        fake_tempo_fetcher.resolve_scope.return_value = scope
+        fake_tempo_fetcher.get_plans.return_value = [
+            TempoPlanItem(day="2026-03-02", issue_key="PROJ-1", planned_hours=8.0)
+        ]
+        response = await tempo_client.call_tool(
+            "get_plans",
+            {
+                "team": "Platform QA",
+                "date_from": "2026-03-02",
+                "date_to": "2026-03-04",
+                "issue_key": "PROJ-1",
+                "include_absences": False,
+            },
+        )
+        data = json.loads(response.content[0].text)
+        assert data["team"] == {"id": 7, "name": "Platform QA"}
+        assert data["plans"][0]["issue_key"] == "PROJ-1"
+        fake_tempo_fetcher.resolve_scope.assert_called_once_with("Platform QA", None)
+        fake_tempo_fetcher.get_plans.assert_called_once_with(
+            scope,
+            date(2026, 3, 2),
+            date(2026, 3, 4),
+            issue_key="PROJ-1",
+            include_absences=False,
+        )
+
+    async def test_get_plans_tool_rejects_long_window(self, tempo_client):
+        with pytest.raises(Exception, match="92"):
+            await tempo_client.call_tool(
+                "get_plans",
+                {"users": ["jdoe"], "date_from": "2026-01-01", "date_to": "2026-06-30"},
             )
