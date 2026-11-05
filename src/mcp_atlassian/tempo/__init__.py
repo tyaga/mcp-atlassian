@@ -12,6 +12,7 @@ from .teams import TeamsMixin
 from .users import UsersMixin
 from .workload import WorkloadMixin
 from .worklogs import WorklogsMixin
+from .writing import PlanWriteMixin
 
 
 class TempoFetcher(
@@ -21,6 +22,7 @@ class TempoFetcher(
     PlanningMixin,
     WorklogsMixin,
     WorkloadMixin,
+    PlanWriteMixin,
 ):
     """Entry point for Tempo operations.
 
