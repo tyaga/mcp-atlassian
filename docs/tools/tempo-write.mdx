@@ -1,0 +1,85 @@
+---
+title: "Tempo Plan Writing"
+description: "Create, update and delete Tempo Planner allocations with validation and dry run (Server/Data Center)"
+---
+
+### Plan Work in Tempo
+
+Plan time on an issue for a user in Tempo Planner, with validation.
+
+<Note>This is a **write** tool. Disabled when `READ_ONLY_MODE=true`.</Note>
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `user` | `string` | Yes | Username, user key, display name or e-mail. |
+| `issue_key` | `string` | Yes | Issue to plan, e.g. 'PROJ-123'. |
+| `date_from` | `string` | Yes | Start date, YYYY-MM-DD. |
+| `date_to` | `string` | No | End date, inclusive (fixed mode, required) or deadline (fit mode, optional), YYYY-MM-DD. |
+| `hours_per_day` | `number` | No | Fixed hours on every working day of date_from..date_to (requires date_to). Exclusive with total_hours. |
+| `total_hours` | `number` | No | Hours to fit into the user's free capacity from date_from on, earliest days first; date_to is the deadline (optional). Exclusive with hours_per_day. |
+| `description` | `string` | No | Plan description. |
+| `team` | `string` | No | Tempo team id or name used as the plan scope. Optional when the user belongs to exactly one team. |
+| `dry_run` | `boolean` | No | When true (default) only validate and report; nothing is written. Show the report to the user and repeat with dry_run=false after they confirm. |
+| `allow_overbooking` | `boolean` | No | Write even if a day goes over capacity. Use only after the user explicitly accepts the overbooking. |
+| `allow_absence_days` | `boolean` | No | Allow planning on days covered by an absence (vacation, sick leave). |
+| `daily_limit_hours` | `number` | No | Cap on daily capacity used for validation, hours. |
+
+---
+
+### Bulk Plan Work in Tempo
+
+Plan several issues in Tempo Planner at once, with validation.
+
+<Note>This is a **write** tool. Disabled when `READ_ONLY_MODE=true`.</Note>
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `items` | `string` | Yes | JSON array of plans, validated in order; each sees the hours taken by earlier items. Each object: - user (required): username, key, display name or e-mail - issue_key (required): e.g. 'PROJ-123' - date_from (required): YYYY-MM-DD - date_to (optional): end date (fixed) or deadline (fit) - hours_per_day or total_hours (exactly one) - description (optional) Example: [`{"user": "jdoe", "issue_key": "PROJ-1", "date_from": "2026-03-02", "total_hours": 12}`] |
+| `team` | `string` | No | Tempo team id or name used as the plan scope. Optional when the user belongs to exactly one team. |
+| `dry_run` | `boolean` | No | When true (default) only validate and report; nothing is written. Show the report to the user and repeat with dry_run=false after they confirm. |
+| `atomic` | `boolean` | No | When true, any conflict writes nothing. When false, conflict-free items are written and the rest are skipped. |
+| `allow_overbooking` | `boolean` | No | Write even if a day goes over capacity. Use only after the user explicitly accepts the overbooking. |
+| `allow_absence_days` | `boolean` | No | Allow planning on days covered by an absence (vacation, sick leave). |
+| `daily_limit_hours` | `number` | No | Cap on daily capacity used for validation, hours. |
+
+---
+
+### Update Tempo Plan
+
+Move, resize or re-describe a Tempo Planner allocation, with validation.
+
+<Note>This is a **write** tool. Disabled when `READ_ONLY_MODE=true`.</Note>
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `allocation_id` | `integer` | Yes | Allocation id (``allocation_id`` from tempo_get_plans). |
+| `date_from` | `string` | No | New start date, YYYY-MM-DD. |
+| `date_to` | `string` | No | New end date, YYYY-MM-DD. |
+| `hours_per_day` | `number` | No | New hours per working day. |
+| `description` | `string` | No | New description. |
+| `dry_run` | `boolean` | No | When true (default) only validate and report; nothing is written. Show the report to the user and repeat with dry_run=false after they confirm. |
+| `allow_overbooking` | `boolean` | No | Write even if a day goes over capacity. Use only after the user explicitly accepts the overbooking. |
+| `allow_absence_days` | `boolean` | No | Allow planning on days covered by an absence (vacation, sick leave). |
+| `daily_limit_hours` | `number` | No | Cap on daily capacity used for validation, hours. |
+
+---
+
+### Delete Tempo Plan
+
+Delete a Tempo Planner allocation. Confirm with the user first.
+
+<Note>This is a **write** tool. Disabled when `READ_ONLY_MODE=true`.</Note>
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `allocation_id` | `integer` | Yes | Allocation id (``allocation_id`` from tempo_get_plans). |
+
+---

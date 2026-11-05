@@ -167,6 +167,12 @@ CATEGORY_TOOLS: dict[str, list[str]] = {
         "tempo_get_workload",
         "tempo_get_plan_vs_actual",
     ],
+    "tempo-write": [
+        "tempo_plan_work",
+        "tempo_bulk_plan_work",
+        "tempo_update_plan",
+        "tempo_delete_plan",
+    ],
 }
 
 CATEGORY_META: dict[str, dict[str, str]] = {
@@ -238,6 +244,13 @@ CATEGORY_META: dict[str, dict[str, str]] = {
         "description": (
             "Tempo plans, schedules, worklogs, workload and plan vs. actual "
             "(Server/Data Center)"
+        ),
+    },
+    "tempo-write": {
+        "title": "Tempo Plan Writing",
+        "description": (
+            "Create, update and delete Tempo Planner allocations with "
+            "validation and dry run (Server/Data Center)"
         ),
     },
 }

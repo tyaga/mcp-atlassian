@@ -114,9 +114,9 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 | `jira_update_issue` - Update issues | `confluence_update_page` - Update pages |
 | `jira_transition_issue` - Change status | `confluence_add_comment` - Add comments |
 
-**Tempo (Server/Data Center, read-only):** `tempo_get_team_members`, `tempo_get_plans`, `tempo_get_workload`, `tempo_get_plan_vs_actual` — team load, free capacity, overbooking and plan vs. logged hours over the Jira connection. Enable with `TOOLSETS=default,tempo_teams,tempo_planning`.
+**Tempo (Server/Data Center):** `tempo_get_team_members`, `tempo_get_plans`, `tempo_get_workload`, `tempo_get_plan_vs_actual` — team load, free capacity, overbooking and plan vs. logged hours over the Jira connection; `tempo_plan_work`, `tempo_bulk_plan_work`, `tempo_update_plan`, `tempo_delete_plan` — validated plan writing with dry run by default. Enable with `TOOLSETS=default,tempo_teams,tempo_planning,tempo_write`.
 
-**105 tools total** — See [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) for the complete list.
+**109 tools total** — See [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) for the complete list.
 
 ## Security
 

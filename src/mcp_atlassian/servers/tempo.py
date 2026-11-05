@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from typing import Annotated, Any
 
 from fastmcp import Context
@@ -15,6 +16,7 @@ from mcp_atlassian.servers.error_handling import ErrorPreservingFastMCP
 from mcp_atlassian.tempo import TempoScope
 from mcp_atlassian.tempo.common import parse_window
 from mcp_atlassian.tempo.teams import team_summary
+from mcp_atlassian.utils.decorators import check_write_access
 
 logger = logging.getLogger(__name__)
 
@@ -375,3 +377,295 @@ async def get_plan_vs_actual(
     if scope.team is not None:
         payload["team"] = team_summary(scope.team)
     return _dump(payload)
+
+
+DRY_RUN_PARAM = Annotated[
+    bool,
+    Field(
+        description=(
+            "When true (default) only validate and report; nothing is written. "
+            "Show the report to the user and repeat with dry_run=false after "
+            "they confirm."
+        )
+    ),
+]
+ALLOW_OVERBOOKING_PARAM = Annotated[
+    bool,
+    Field(
+        description=(
+            "Write even if a day goes over capacity. Use only after the user "
+            "explicitly accepts the overbooking."
+        )
+    ),
+]
+ALLOW_ABSENCE_PARAM = Annotated[
+    bool,
+    Field(
+        description=(
+            "Allow planning on days covered by an absence (vacation, sick leave)."
+        )
+    ),
+]
+DAILY_LIMIT_PARAM = Annotated[
+    float,
+    Field(gt=0, le=24, description="Cap on daily capacity used for validation, hours."),
+]
+HOURS_PER_DAY_PARAM = Annotated[
+    float | None,
+    Field(
+        gt=0,
+        le=24,
+        description=(
+            "Fixed hours on every working day of date_from..date_to "
+            "(requires date_to). Exclusive with total_hours."
+        ),
+    ),
+]
+TOTAL_HOURS_PARAM = Annotated[
+    float | None,
+    Field(
+        gt=0,
+        description=(
+            "Hours to fit into the user's free capacity from date_from on, "
+            "earliest days first; date_to is the deadline (optional). "
+            "Exclusive with hours_per_day."
+        ),
+    ),
+]
+WRITE_TEAM_PARAM = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Tempo team id or name used as the plan scope. Optional when the "
+            "user belongs to exactly one team."
+        )
+    ),
+]
+ALLOCATION_ID_PARAM = Annotated[
+    int,
+    Field(description="Allocation id (``allocation_id`` from tempo_get_plans)."),
+]
+
+
+def _optional_date(value: str | None, name: str) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a YYYY-MM-DD date, got {value!r}") from exc
+
+
+def _parse_plan_items(raw: str) -> list[dict[str, Any]]:
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"items must be a JSON array of objects: {exc}") from exc
+    if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+        raise ValueError("items must be a JSON array of objects")
+    return items
+
+
+@tempo_mcp.tool(
+    tags={"tempo", "write", "toolset:tempo_write"},
+    annotations={
+        "title": "Plan Work in Tempo",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+    },
+)
+@check_write_access
+async def plan_work(
+    ctx: Context,
+    user: Annotated[
+        str, Field(description="Username, user key, display name or e-mail.")
+    ],
+    issue_key: Annotated[str, Field(description="Issue to plan, e.g. 'PROJ-123'.")],
+    date_from: DATE_FROM_PARAM,
+    date_to: Annotated[
+        str | None,
+        Field(
+            description=(
+                "End date, inclusive (fixed mode, required) or deadline "
+                "(fit mode, optional), YYYY-MM-DD."
+            )
+        ),
+    ] = None,
+    hours_per_day: HOURS_PER_DAY_PARAM = None,
+    total_hours: TOTAL_HOURS_PARAM = None,
+    description: Annotated[str, Field(description="Plan description.")] = "",
+    team: WRITE_TEAM_PARAM = None,
+    dry_run: DRY_RUN_PARAM = True,
+    allow_overbooking: ALLOW_OVERBOOKING_PARAM = False,
+    allow_absence_days: ALLOW_ABSENCE_PARAM = False,
+    daily_limit_hours: DAILY_LIMIT_PARAM = 8.0,
+) -> str:
+    """Plan time on an issue for a user in Tempo Planner, with validation.
+
+    Checks the user's schedule (weekends, holidays), absences and existing
+    plans. Conflicts (overbooked, absent, non_working, does_not_fit) block the
+    write. Dry run by default.
+
+    Returns:
+        JSON ``{ok, written, mode, user, issue, team, days: [{day,
+        capacity_hours, planned_hours, absence_hours, added_hours,
+        free_after_hours, status_after}], conflicts: [{day, type, message}],
+        allocations: [{allocation_id, start, end, hours_per_day, total_hours,
+        working_days}]}``.
+    """
+    start = _optional_date(date_from, "date_from")
+    if start is None:
+        raise ValueError("date_from is required")
+    end = _optional_date(date_to, "date_to")
+    tempo = await get_tempo_fetcher(ctx)
+    result = await run_jira_fetcher_call(
+        tempo.plan_work,
+        user,
+        issue_key,
+        start,
+        end,
+        hours_per_day=hours_per_day,
+        total_hours=total_hours,
+        description=description,
+        team=team,
+        dry_run=dry_run,
+        allow_overbooking=allow_overbooking,
+        allow_absence_days=allow_absence_days,
+        daily_limit_hours=daily_limit_hours,
+    )
+    return _dump(result.to_simplified_dict())
+
+
+@tempo_mcp.tool(
+    tags={"tempo", "write", "toolset:tempo_write"},
+    annotations={
+        "title": "Bulk Plan Work in Tempo",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+    },
+)
+@check_write_access
+async def bulk_plan_work(
+    ctx: Context,
+    items: Annotated[
+        str,
+        Field(
+            description=(
+                "JSON array of plans, validated in order; each sees the hours "
+                "taken by earlier items. Each object:\n"
+                "- user (required): username, key, display name or e-mail\n"
+                "- issue_key (required): e.g. 'PROJ-123'\n"
+                "- date_from (required): YYYY-MM-DD\n"
+                "- date_to (optional): end date (fixed) or deadline (fit)\n"
+                "- hours_per_day or total_hours (exactly one)\n"
+                "- description (optional)\n"
+                'Example: [{"user": "jdoe", "issue_key": "PROJ-1", '
+                '"date_from": "2026-03-02", "total_hours": 12}]'
+            )
+        ),
+    ],
+    team: WRITE_TEAM_PARAM = None,
+    dry_run: DRY_RUN_PARAM = True,
+    atomic: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, any conflict writes nothing. When false, "
+                "conflict-free items are written and the rest are skipped."
+            )
+        ),
+    ] = True,
+    allow_overbooking: ALLOW_OVERBOOKING_PARAM = False,
+    allow_absence_days: ALLOW_ABSENCE_PARAM = False,
+    daily_limit_hours: DAILY_LIMIT_PARAM = 8.0,
+) -> str:
+    """Plan several issues in Tempo Planner at once, with validation.
+
+    Returns:
+        JSON ``{ok, written, results: [<plan_work result> + {index,
+        status: planned | created | skipped}]}``.
+    """
+    tempo = await get_tempo_fetcher(ctx)
+    result = await run_jira_fetcher_call(
+        tempo.bulk_plan_work,
+        _parse_plan_items(items),
+        team=team,
+        dry_run=dry_run,
+        atomic=atomic,
+        allow_overbooking=allow_overbooking,
+        allow_absence_days=allow_absence_days,
+        daily_limit_hours=daily_limit_hours,
+    )
+    return _dump(result)
+
+
+@tempo_mcp.tool(
+    tags={"tempo", "write", "toolset:tempo_write"},
+    annotations={
+        "title": "Update Tempo Plan",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+    },
+)
+@check_write_access
+async def update_plan(
+    ctx: Context,
+    allocation_id: ALLOCATION_ID_PARAM,
+    date_from: Annotated[
+        str | None, Field(description="New start date, YYYY-MM-DD.")
+    ] = None,
+    date_to: Annotated[
+        str | None, Field(description="New end date, YYYY-MM-DD.")
+    ] = None,
+    hours_per_day: Annotated[
+        float | None, Field(gt=0, le=24, description="New hours per working day.")
+    ] = None,
+    description: Annotated[str | None, Field(description="New description.")] = None,
+    dry_run: DRY_RUN_PARAM = True,
+    allow_overbooking: ALLOW_OVERBOOKING_PARAM = False,
+    allow_absence_days: ALLOW_ABSENCE_PARAM = False,
+    daily_limit_hours: DAILY_LIMIT_PARAM = 8.0,
+) -> str:
+    """Move, resize or re-describe a Tempo Planner allocation, with validation.
+
+    Unspecified fields keep their current values. The allocation's own hours
+    are excluded from the load during validation.
+
+    Returns:
+        JSON as ``tempo_plan_work`` plus ``allocation_id`` and ``before``.
+    """
+    tempo = await get_tempo_fetcher(ctx)
+    result = await run_jira_fetcher_call(
+        tempo.update_plan,
+        allocation_id,
+        date_from=_optional_date(date_from, "date_from"),
+        date_to=_optional_date(date_to, "date_to"),
+        hours_per_day=hours_per_day,
+        description=description,
+        dry_run=dry_run,
+        allow_overbooking=allow_overbooking,
+        allow_absence_days=allow_absence_days,
+        daily_limit_hours=daily_limit_hours,
+    )
+    return _dump(result.to_simplified_dict())
+
+
+@tempo_mcp.tool(
+    tags={"tempo", "write", "toolset:tempo_write"},
+    annotations={
+        "title": "Delete Tempo Plan",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+    },
+)
+@check_write_access
+async def delete_plan(ctx: Context, allocation_id: ALLOCATION_ID_PARAM) -> str:
+    """Delete a Tempo Planner allocation. Confirm with the user first.
+
+    Returns:
+        JSON ``{"deleted": true, "allocation": {...}}`` describing what was
+        removed.
+    """
+    tempo = await get_tempo_fetcher(ctx)
+    allocation = await run_jira_fetcher_call(tempo.delete_plan, allocation_id)
+    return _dump({"deleted": True, "allocation": allocation.to_simplified_dict()})

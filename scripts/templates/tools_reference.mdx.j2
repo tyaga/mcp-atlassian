@@ -59,7 +59,7 @@ MCP Atlassian provides **{{ counts.total_tools }} tools** for interacting with J
 
 ## Tempo Tools
 
-Read-only tools for Tempo Timesheets and Tempo Planner on Jira Server/Data Center. They reuse the Jira connection and need no extra configuration.
+Tools for Tempo Timesheets and Tempo Planner on Jira Server/Data Center. They reuse the Jira connection and need no extra configuration. Writing tools validate against schedules, absences and existing plans and run as a dry run unless asked otherwise.
 
 <CardGroup cols={2}>
   <Card title="Teams" icon="users" href="/docs/tools/tempo-teams">
@@ -67,6 +67,9 @@ Read-only tools for Tempo Timesheets and Tempo Planner on Jira Server/Data Cente
   </Card>
   <Card title="Planning" icon="calendar-days" href="/docs/tools/tempo-planning">
     Plans, schedules, worklogs, workload, plan vs. actual
+  </Card>
+  <Card title="Plan Writing" icon="calendar-plus" href="/docs/tools/tempo-write">
+    Create, move and delete planned time with validation
   </Card>
 </CardGroup>
 

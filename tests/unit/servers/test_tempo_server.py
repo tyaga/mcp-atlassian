@@ -12,7 +12,9 @@ from fastmcp.tools import Tool as FastMCPTool
 from mcp.types import Tool as MCPTool
 
 from mcp_atlassian.models.tempo import (
+    TempoAllocation,
     TempoPlanItem,
+    TempoPlanResult,
     TempoPlanVsActualReport,
     TempoTeam,
     TempoTeamMember,
@@ -26,6 +28,8 @@ from mcp_atlassian.servers.main import AtlassianMCP, main_lifespan
 from mcp_atlassian.servers.tempo import tempo_mcp
 from mcp_atlassian.tempo import TempoFetcher, TempoScope
 from mcp_atlassian.utils.toolsets import get_toolset_tag
+
+WRITE_TOOLS = {"plan_work", "bulk_plan_work", "update_plan", "delete_plan"}
 
 
 @pytest.fixture
@@ -65,12 +69,18 @@ class TestTempoServerInstance:
     def test_tempo_mcp_name(self):
         assert tempo_mcp.name == "Tempo MCP Service"
 
-    def test_every_tempo_tool_is_read_and_has_one_toolset(self, tempo_tools):
+    def test_every_tempo_tool_is_tagged_and_has_one_toolset(self, tempo_tools):
         for name, tool in tempo_tools.items():
             assert "tempo" in tool.tags, name
-            assert "read" in tool.tags, name
-            assert "write" not in tool.tags, name
-            assert get_toolset_tag(tool.tags) in {"tempo_teams", "tempo_planning"}, name
+            assert get_toolset_tag(tool.tags) in {
+                "tempo_teams",
+                "tempo_planning",
+                "tempo_write",
+            }, name
+            if name in WRITE_TOOLS:
+                assert "write" in tool.tags and "read" not in tool.tags, name
+            else:
+                assert "read" in tool.tags and "write" not in tool.tags, name
 
 
 @pytest.mark.anyio
@@ -308,7 +318,7 @@ class TestTempoToolAnnotations:
         for name, tool in tempo_tools.items():
             annotations = tool.annotations
             assert annotations is not None, name
-            assert annotations.readOnlyHint is True, name
+            assert annotations.readOnlyHint is (name not in WRITE_TOOLS), name
             assert annotations.title, name
 
 
@@ -329,3 +339,201 @@ class TestTempoCloudGating:
             MainAppContext(full_jira_config=jira_config, full_confluence_config=None)
         )
         assert [t.name for t in await server._list_tools_mcp()] == ["tempo_list_teams"]
+
+
+class _ReadOnlyContext:
+    def __init__(self, read_only: bool) -> None:
+        self.request_context = MagicMock()
+        self.request_context.lifespan_context = {
+            "app_lifespan_context": MagicMock(read_only=read_only)
+        }
+
+
+class TestWriteToolTags:
+    def test_write_tools_registered_with_write_tag(self, tempo_tools):
+        for name in WRITE_TOOLS:
+            tool = tempo_tools[name]
+            assert {"tempo", "write", "toolset:tempo_write"} <= tool.tags, name
+            assert "read" not in tool.tags, name
+            assert tool.annotations.readOnlyHint is False, name
+
+    def test_delete_is_destructive(self, tempo_tools):
+        assert tempo_tools["delete_plan"].annotations.destructiveHint is True
+        assert tempo_tools["plan_work"].annotations.destructiveHint is False
+
+
+@pytest.mark.anyio
+class TestWriteToolsReadOnly:
+    @pytest.mark.parametrize(
+        ("func_name", "kwargs"),
+        [
+            (
+                "plan_work",
+                {
+                    "user": "jdoe",
+                    "issue_key": "PROJ-1",
+                    "date_from": "2026-03-02",
+                    "date_to": "2026-03-02",
+                    "hours_per_day": 1.0,
+                },
+            ),
+            ("bulk_plan_work", {"items": "[]"}),
+            ("update_plan", {"allocation_id": 1}),
+            ("delete_plan", {"allocation_id": 1}),
+        ],
+    )
+    async def test_blocked_in_read_only_mode(
+        self, func_name, kwargs, fake_tempo_fetcher
+    ):
+        from fastmcp.exceptions import ToolError
+
+        from mcp_atlassian.servers import tempo as tempo_server
+
+        func = getattr(tempo_server, func_name)
+        with (
+            patch(
+                "mcp_atlassian.servers.tempo.get_tempo_fetcher",
+                AsyncMock(return_value=fake_tempo_fetcher),
+            ),
+            pytest.raises(ToolError, match="read-only mode"),
+        ):
+            await func(_ReadOnlyContext(read_only=True), **kwargs)
+        assert fake_tempo_fetcher.method_calls == []
+
+
+@pytest.mark.anyio
+class TestWriteTools:
+    async def test_plan_work_tool_defaults_to_dry_run(
+        self, tempo_client, fake_tempo_fetcher
+    ):
+        fake_tempo_fetcher.plan_work.return_value = TempoPlanResult(
+            ok=True, mode="fixed"
+        )
+        response = await tempo_client.call_tool(
+            "plan_work",
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-1",
+                "date_from": "2026-03-02",
+                "date_to": "2026-03-03",
+                "hours_per_day": 4.0,
+            },
+        )
+        data = json.loads(response.content[0].text)
+        assert data["ok"] is True and data["written"] is False
+        fake_tempo_fetcher.plan_work.assert_called_once_with(
+            "jdoe",
+            "PROJ-1",
+            date(2026, 3, 2),
+            date(2026, 3, 3),
+            hours_per_day=4.0,
+            total_hours=None,
+            description="",
+            team=None,
+            dry_run=True,
+            allow_overbooking=False,
+            allow_absence_days=False,
+            daily_limit_hours=8.0,
+        )
+
+    async def test_plan_work_tool_fit_without_date_to(
+        self, tempo_client, fake_tempo_fetcher
+    ):
+        fake_tempo_fetcher.plan_work.return_value = TempoPlanResult(ok=True, mode="fit")
+        await tempo_client.call_tool(
+            "plan_work",
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-1",
+                "date_from": "2026-03-02",
+                "total_hours": 12,
+                "dry_run": False,
+                "team": "Platform QA",
+            },
+        )
+        args, kwargs = fake_tempo_fetcher.plan_work.call_args
+        assert args[3] is None
+        assert (kwargs["total_hours"], kwargs["dry_run"], kwargs["team"]) == (
+            12.0,
+            False,
+            "Platform QA",
+        )
+
+    async def test_plan_work_tool_rejects_bad_date(self, tempo_client):
+        with pytest.raises(Exception, match="date_from"):
+            await tempo_client.call_tool(
+                "plan_work",
+                {
+                    "user": "jdoe",
+                    "issue_key": "PROJ-1",
+                    "date_from": "03/02/2026",
+                    "hours_per_day": 1.0,
+                },
+            )
+
+    async def test_bulk_tool_passes_items(self, tempo_client, fake_tempo_fetcher):
+        fake_tempo_fetcher.bulk_plan_work.return_value = {
+            "ok": True,
+            "written": False,
+            "results": [],
+        }
+        items = [
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-1",
+                "date_from": "2026-03-02",
+                "date_to": "2026-03-02",
+                "hours_per_day": 2.0,
+            }
+        ]
+        response = await tempo_client.call_tool(
+            "bulk_plan_work", {"items": json.dumps(items), "atomic": False}
+        )
+        assert json.loads(response.content[0].text)["ok"] is True
+        called_items = fake_tempo_fetcher.bulk_plan_work.call_args.args[0]
+        assert called_items[0]["issue_key"] == "PROJ-1"
+        assert fake_tempo_fetcher.bulk_plan_work.call_args.kwargs["atomic"] is False
+        assert fake_tempo_fetcher.bulk_plan_work.call_args.kwargs["dry_run"] is True
+
+    async def test_update_tool(self, tempo_client, fake_tempo_fetcher):
+        fake_tempo_fetcher.update_plan.return_value = TempoPlanResult(
+            ok=True, allocation_id=7
+        )
+        response = await tempo_client.call_tool(
+            "update_plan",
+            {"allocation_id": 7, "date_to": "2026-03-04", "hours_per_day": 2.5},
+        )
+        assert json.loads(response.content[0].text)["allocation_id"] == 7
+        fake_tempo_fetcher.update_plan.assert_called_once_with(
+            7,
+            date_from=None,
+            date_to=date(2026, 3, 4),
+            hours_per_day=2.5,
+            description=None,
+            dry_run=True,
+            allow_overbooking=False,
+            allow_absence_days=False,
+            daily_limit_hours=8.0,
+        )
+
+    async def test_delete_tool(self, tempo_client, fake_tempo_fetcher):
+        fake_tempo_fetcher.delete_plan.return_value = TempoAllocation(
+            id=7, issue_key="PROJ-1"
+        )
+        response = await tempo_client.call_tool("delete_plan", {"allocation_id": 7})
+        data = json.loads(response.content[0].text)
+        assert data["deleted"] is True
+        assert data["allocation"]["allocation_id"] == 7
+
+
+@pytest.mark.anyio
+class TestBulkItemsParsing:
+    async def test_bulk_tool_rejects_non_array(self, tempo_client):
+        with pytest.raises(Exception, match="JSON array"):
+            await tempo_client.call_tool(
+                "bulk_plan_work", {"items": '{"user": "jdoe"}'}
+            )
+
+    async def test_bulk_tool_rejects_invalid_json(self, tempo_client):
+        with pytest.raises(Exception, match="JSON array"):
+            await tempo_client.call_tool("bulk_plan_work", {"items": "[{"})
