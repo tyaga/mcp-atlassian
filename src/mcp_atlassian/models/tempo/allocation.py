@@ -15,8 +15,10 @@ class TempoAllocation(ApiModel):
     user: TempoUserRef = TempoUserRef()
     issue_key: str = ""
     issue_id: int = 0
+    plan_item_type: str = "ISSUE"
     summary: str = ""
     team_id: int = 0
+    scope_type: str = "team"
     start: str = ""
     end: str = ""
     seconds_per_day: int = 0
@@ -40,8 +42,10 @@ class TempoAllocation(ApiModel):
             ),
             issue_key=str(item.get("key") or ""),
             issue_id=int(item.get("id") or 0),
+            plan_item_type=str(item.get("type") or "ISSUE"),
             summary=str(item.get("summary") or item.get("name") or ""),
             team_id=int(scope.get("id") or 0),
+            scope_type=str(scope.get("type") or "team"),
             start=str(data.get("start") or ""),
             end=str(data.get("end") or ""),
             seconds_per_day=seconds_per_day,
@@ -51,11 +55,16 @@ class TempoAllocation(ApiModel):
         )
 
     def to_request_body(self) -> dict[str, Any]:
-        """Body for ``POST``/``PUT /rest/tempo-planning/1/allocation``."""
+        """Body for ``POST``/``PUT /rest/tempo-planning/1/allocation``.
+
+        Tempo accepts a username or a user key as ``assignee.key``; the user
+        key is sent because a username can collide with another user's legacy
+        key after a rename.
+        """
         return {
-            "assignee": {"key": self.user.username or self.user.key, "type": "user"},
-            "planItem": {"id": self.issue_id, "type": "ISSUE"},
-            "scope": {"id": self.team_id, "type": "team"},
+            "assignee": {"key": self.user.key or self.user.username, "type": "user"},
+            "planItem": {"id": self.issue_id, "type": self.plan_item_type},
+            "scope": {"id": self.team_id, "type": self.scope_type},
             "start": self.start,
             "end": self.end,
             "secondsPerDay": self.seconds_per_day,
@@ -148,6 +157,7 @@ class TempoPlanResult(ApiModel):
     allocations: list[TempoAllocationDraft] = []
     allocation_id: int | None = None
     before: dict[str, Any] | None = None
+    error: str | None = None
 
     def to_simplified_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -165,4 +175,6 @@ class TempoPlanResult(ApiModel):
             data["allocation_id"] = self.allocation_id
         if self.before is not None:
             data["before"] = self.before
+        if self.error is not None:
+            data["error"] = self.error
         return data

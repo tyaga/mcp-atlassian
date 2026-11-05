@@ -402,7 +402,9 @@ ALLOW_ABSENCE_PARAM = Annotated[
     bool,
     Field(
         description=(
-            "Allow planning on days covered by an absence (vacation, sick leave)."
+            "Allow planning on days with an absence (vacation, sick leave). "
+            "Absence hours still use up capacity, so a full-day absence also "
+            "needs allow_overbooking."
         )
     ),
 ]
@@ -504,7 +506,8 @@ async def plan_work(
 
     Checks the user's schedule (weekends, holidays), absences and existing
     plans. Conflicts (overbooked, absent, non_working, does_not_fit) block the
-    write. Dry run by default.
+    write. Dry run by default. If Tempo fails part-way, ``error`` lists the
+    allocations already created and ``written`` is true.
 
     Returns:
         JSON ``{ok, written, mode, user, issue, team, days: [{day,
@@ -581,9 +584,12 @@ async def bulk_plan_work(
 ) -> str:
     """Plan several issues in Tempo Planner at once, with validation.
 
+    With ``atomic=true`` a Tempo failure during writing deletes the
+    allocations this call already created (``rolled_back``).
+
     Returns:
-        JSON ``{ok, written, results: [<plan_work result> + {index,
-        status: planned | created | skipped}]}``.
+        JSON ``{ok, written, error?, rolled_back?, results: [<plan_work result>
+        + {index, status: planned | created | skipped | failed}]}``.
     """
     tempo = await get_tempo_fetcher(ctx)
     result = await run_jira_fetcher_call(
@@ -604,7 +610,7 @@ async def bulk_plan_work(
     annotations={
         "title": "Update Tempo Plan",
         "readOnlyHint": False,
-        "destructiveHint": False,
+        "destructiveHint": True,
     },
 )
 @check_write_access
@@ -629,7 +635,8 @@ async def update_plan(
     """Move, resize or re-describe a Tempo Planner allocation, with validation.
 
     Unspecified fields keep their current values. The allocation's own hours
-    are excluded from the load during validation.
+    are excluded from the load during validation. Only team-scoped issue plans
+    that skip non-working days can be updated.
 
     Returns:
         JSON as ``tempo_plan_work`` plus ``allocation_id`` and ``before``.

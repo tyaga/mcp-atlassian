@@ -192,13 +192,20 @@ class TestFitPlacement:
             "2026-03-05": 2.0,
         }
 
-    def test_fit_uses_absence_days_when_allowed(self):
+    def test_fit_uses_partial_absence_days_when_allowed(self):
         loads = _loads(
-            [_plan("2026-03-02", 8.0, absence=True)], start=START, end=date(2026, 3, 3)
+            [
+                _plan("2026-03-02", 8.0, absence=True),
+                _plan("2026-03-03", 4.0, absence=True),
+            ],
+            start=START,
+            end=date(2026, 3, 4),
         )
-        placements, unplaced = fit_placement(loads, 4.0, allow_absence_days=True)
-        assert _by_day(placements) == {"2026-03-02": 4.0}
+        placements, unplaced = fit_placement(loads, 8.0, allow_absence_days=True)
+        assert _by_day(placements) == {"2026-03-03": 4.0, "2026-03-04": 4.0}
         assert unplaced == 0.0
+        skipped, _ = fit_placement(loads, 8.0, allow_absence_days=False)
+        assert _by_day(skipped) == {"2026-03-04": 8.0}
 
     def test_fit_reports_unplaced_hours(self):
         loads = _loads(start=START, end=date(2026, 3, 3))

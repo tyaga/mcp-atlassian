@@ -1,6 +1,7 @@
 """Tests for plan-writing operations."""
 
 from datetime import date
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -153,7 +154,7 @@ class TestPlanWorkFixed:
         assert (result.ok, result.written) == (True, True)
         assert fetcher.created == [  # type: ignore[attr-defined]
             {
-                "assignee": {"key": "jdoe", "type": "user"},
+                "assignee": {"key": "JIRAUSER1001", "type": "user"},
                 "planItem": {"id": 4242, "type": "ISSUE"},
                 "scope": {"id": 7, "type": "team"},
                 "start": "2026-03-02",
@@ -449,7 +450,7 @@ class TestUpdate:
         assert fetcher.put_calls == [  # type: ignore[attr-defined]
             {
                 "id": 777,
-                "assignee": {"key": "jdoe", "type": "user"},
+                "assignee": {"key": "JIRAUSER1001", "type": "user"},
                 "planItem": {"id": 4242, "type": "ISSUE"},
                 "scope": {"id": 7, "type": "team"},
                 "start": "2026-03-02",
@@ -485,3 +486,253 @@ class TestDelete:
         allocation = fetcher.delete_plan(777)
         assert allocation.id == 777 and allocation.issue_key == "PROJ-123"
         assert fetcher.client.calls[-1] == ("DELETE", f"{ALLOC}/777", None)
+
+
+class TestReviewRegressions:
+    def test_partial_failure_reports_created_allocations(self):
+        fetcher = _fetcher(plans=[_plan_row("2026-03-02", 6.0)])
+        calls = {"n": 0}
+
+        def flaky(payload: dict) -> dict:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise ValueError(
+                    "Tempo API HTTP 500: /rest/tempo-planning/1/allocation | boom"
+                )
+            return _allocation_response(payload, 600 + calls["n"])
+
+        fetcher.client.routes[("POST", ALLOC)] = flaky  # type: ignore[attr-defined]
+        result = fetcher.plan_work(
+            "jdoe",
+            "PROJ-123",
+            date(2026, 3, 2),
+            date(2026, 3, 8),
+            total_hours=12.0,
+            dry_run=False,
+        )
+        assert result.written is True
+        assert result.ok is False
+        assert [a.allocation_id for a in result.allocations] == [601, None, None]
+        assert result.error is not None and "boom" in result.error
+        assert "601" in result.error
+
+    def test_atomic_bulk_rolls_back_on_write_failure(self):
+        fetcher = _fetcher()
+        deleted: list[str] = []
+        calls = {"n": 0}
+
+        def flaky(payload: dict) -> dict:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise ValueError("Tempo API HTTP 500: boom")
+            return _allocation_response(payload, 700 + calls["n"])
+
+        fetcher.client.routes[("POST", ALLOC)] = flaky  # type: ignore[attr-defined]
+        fetcher.client.routes[("DELETE", f"{ALLOC}/701")] = lambda _: deleted.append(
+            "701"
+        )  # type: ignore[attr-defined]
+        items = [
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-123",
+                "date_from": "2026-03-02",
+                "date_to": "2026-03-02",
+                "hours_per_day": 2.0,
+            },
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-124",
+                "date_from": "2026-03-03",
+                "date_to": "2026-03-03",
+                "hours_per_day": 2.0,
+            },
+        ]
+        result = fetcher.bulk_plan_work(items, dry_run=False, atomic=True)
+        assert deleted == ["701"]
+        assert result["written"] is False
+        assert result["rolled_back"] == [701]
+        assert "boom" in result["error"]
+
+    def test_non_atomic_bulk_reports_failed_item(self):
+        fetcher = _fetcher()
+        calls = {"n": 0}
+
+        def flaky(payload: dict) -> dict:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise ValueError("Tempo API HTTP 500: boom")
+            return _allocation_response(payload, 800 + calls["n"])
+
+        fetcher.client.routes[("POST", ALLOC)] = flaky  # type: ignore[attr-defined]
+        items = [
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-123",
+                "date_from": "2026-03-02",
+                "date_to": "2026-03-02",
+                "hours_per_day": 2.0,
+            },
+            {
+                "user": "jdoe",
+                "issue_key": "PROJ-124",
+                "date_from": "2026-03-03",
+                "date_to": "2026-03-03",
+                "hours_per_day": 2.0,
+            },
+        ]
+        result = fetcher.bulk_plan_work(items, dry_run=False, atomic=False)
+        assert result["written"] is True
+        assert [r["status"] for r in result["results"]] == ["created", "failed"]
+        assert "boom" in result["results"][1]["error"]
+
+    def test_fit_with_absence_flag_uses_free_capacity(self):
+        fetcher = _fetcher(
+            plans=[_plan_row("2026-03-02", 8.0, key="PROJ-9", summary="Vacation")]
+        )
+        result = fetcher.plan_work(
+            "jdoe",
+            "PROJ-123",
+            date(2026, 3, 2),
+            date(2026, 3, 3),
+            total_hours=8.0,
+            allow_absence_days=True,
+        )
+        assert result.ok is True
+        assert [(d.day, d.added_hours) for d in result.days] == [
+            ("2026-03-02", 0.0),
+            ("2026-03-03", 8.0),
+        ]
+
+    def test_fit_with_absence_flag_uses_partial_absence_day(self):
+        fetcher = _fetcher(
+            plans=[_plan_row("2026-03-02", 4.0, key="PROJ-9", summary="Day off (half)")]
+        )
+        result = fetcher.plan_work(
+            "jdoe",
+            "PROJ-123",
+            date(2026, 3, 2),
+            date(2026, 3, 3),
+            total_hours=4.0,
+            allow_absence_days=True,
+        )
+        assert result.ok is True
+        assert result.days[0].added_hours == 4.0
+
+    def test_body_uses_user_key_and_checks_returned_assignee(self):
+        fetcher = _fetcher()
+        fetcher.jira.get_user_profile_by_identifier.return_value = JiraUser(
+            username="jdoe", user_key="JIRAUSER1001", display_name="Jane Doe"
+        )
+        fetcher.plan_work(
+            "jdoe",
+            "PROJ-123",
+            date(2026, 3, 2),
+            date(2026, 3, 2),
+            hours_per_day=1.0,
+            dry_run=False,
+        )
+        assert fetcher.created[0]["assignee"] == {"key": "JIRAUSER1001", "type": "user"}  # type: ignore[attr-defined]
+
+    def test_mismatched_returned_assignee_is_an_error(self):
+        fetcher = _fetcher()
+
+        def wrong_user(payload: dict) -> dict:
+            body = _allocation_response(payload, 900)
+            body["assignee"] = {
+                "key": "other",
+                "type": "user",
+                "userKey": "JIRAUSER2002",
+            }
+            return body
+
+        fetcher.client.routes[("POST", ALLOC)] = wrong_user  # type: ignore[attr-defined]
+        result = fetcher.plan_work(
+            "jdoe",
+            "PROJ-123",
+            date(2026, 3, 2),
+            date(2026, 3, 2),
+            hours_per_day=1.0,
+            dry_run=False,
+        )
+        assert result.ok is False
+        assert (
+            result.error is not None
+            and "JIRAUSER2002" in result.error
+            and "900" in result.error
+        )
+
+    def test_unknown_issue_in_bulk_marks_item_invalid(self):
+        from requests.exceptions import HTTPError
+
+        fetcher = _fetcher()
+        response = MagicMock(status_code=404, text="Issue Does Not Exist")
+        fetcher.jira.jira.get_issue.side_effect = HTTPError("404", response=response)
+        result = fetcher.bulk_plan_work(
+            [
+                {
+                    "user": "jdoe",
+                    "issue_key": "PROJ-404",
+                    "date_from": "2026-03-02",
+                    "date_to": "2026-03-02",
+                    "hours_per_day": 1.0,
+                }
+            ]
+        )
+        entry = result["results"][0]
+        assert entry["status"] == "skipped"
+        assert entry["conflicts"][0]["type"] == "invalid"
+        assert "PROJ-404" in entry["conflicts"][0]["message"]
+
+
+class TestUpdateRegressions:
+    def _fetcher(self, existing: dict, plans=None):
+        put_calls: list[dict] = []
+
+        def put_alloc(payload: dict) -> dict:
+            put_calls.append(payload)
+            return {**existing, **payload}
+
+        fetcher = _fetcher(
+            plans=plans or [],
+            routes={
+                ("GET", f"{ALLOC}/777"): existing,
+                ("PUT", f"{ALLOC}/777"): put_alloc,
+            },
+        )
+        fetcher.put_calls = put_calls  # type: ignore[attr-defined]
+        return fetcher
+
+    def test_update_keeps_exact_seconds_when_hours_not_given(self):
+        existing = {**EXISTING, "secondsPerDay": 12000}
+        fetcher = self._fetcher(existing)
+        fetcher.update_plan(777, description="New", dry_run=False)
+        assert fetcher.put_calls[0]["secondsPerDay"] == 12000  # type: ignore[attr-defined]
+
+    def test_update_refuses_project_plans(self):
+        existing = {
+            **EXISTING,
+            "planItem": {"key": "PROJ", "id": 31, "type": "PROJECT", "name": "Project"},
+        }
+        fetcher = self._fetcher(existing)
+        with pytest.raises(ValueError, match="issue plans"):
+            fetcher.update_plan(777, hours_per_day=1.0)
+
+    def test_update_refuses_non_team_scope(self):
+        existing = {**EXISTING, "scope": {"id": 4242, "type": "none"}}
+        fetcher = self._fetcher(existing)
+        with pytest.raises(ValueError, match="team-scoped"):
+            fetcher.update_plan(777, hours_per_day=1.0)
+
+    def test_update_refuses_include_non_working_days(self):
+        existing = {**EXISTING, "includeNonWorkingDays": True}
+        fetcher = self._fetcher(existing)
+        with pytest.raises(ValueError, match="non-working"):
+            fetcher.update_plan(777, hours_per_day=1.0)
+
+    def test_update_sends_user_key(self):
+        fetcher = self._fetcher(EXISTING)
+        fetcher.update_plan(777, description="New", dry_run=False)
+        assert fetcher.put_calls[0]["assignee"] == {
+            "key": "JIRAUSER1001",
+            "type": "user",
+        }  # type: ignore[attr-defined]

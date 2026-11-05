@@ -357,8 +357,9 @@ class TestWriteToolTags:
             assert "read" not in tool.tags, name
             assert tool.annotations.readOnlyHint is False, name
 
-    def test_delete_is_destructive(self, tempo_tools):
+    def test_destructive_hints(self, tempo_tools):
         assert tempo_tools["delete_plan"].annotations.destructiveHint is True
+        assert tempo_tools["update_plan"].annotations.destructiveHint is True
         assert tempo_tools["plan_work"].annotations.destructiveHint is False
 
 

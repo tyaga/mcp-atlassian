@@ -133,7 +133,13 @@ worklogs; mention them separately instead of calling them "not logged".
 - **Overbooking and absence days are opt-in.** Set `allow_overbooking` or
   `allow_absence_days` only after the user explicitly accepts the conflict
   shown in the dry run; then list the people whose schedule now needs
-  adjusting (from `days` with `status_after: overbooked`).
+  adjusting (from `days` with `status_after: overbooked`). Absence hours
+  always use up capacity: planning over a full-day vacation needs both flags.
+- **Partial failures.** If Tempo fails mid-write, the result has `error`
+  with the allocation ids already created. Tell the user exactly which ones
+  exist; do not simply retry (the retry would see them as existing load and
+  plan the hours twice). Atomic bulk calls delete what they created
+  (`rolled_back`).
 - **Team scope.** Every plan belongs to a Tempo team. If the user is in one
   team it is used automatically; otherwise the tool returns the list —
   ask which team, then pass `team`.

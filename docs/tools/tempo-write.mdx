@@ -23,7 +23,7 @@ Plan time on an issue for a user in Tempo Planner, with validation.
 | `team` | `string` | No | Tempo team id or name used as the plan scope. Optional when the user belongs to exactly one team. |
 | `dry_run` | `boolean` | No | When true (default) only validate and report; nothing is written. Show the report to the user and repeat with dry_run=false after they confirm. |
 | `allow_overbooking` | `boolean` | No | Write even if a day goes over capacity. Use only after the user explicitly accepts the overbooking. |
-| `allow_absence_days` | `boolean` | No | Allow planning on days covered by an absence (vacation, sick leave). |
+| `allow_absence_days` | `boolean` | No | Allow planning on days with an absence (vacation, sick leave). Absence hours still use up capacity, so a full-day absence also needs allow_overbooking. |
 | `daily_limit_hours` | `number` | No | Cap on daily capacity used for validation, hours. |
 
 ---
@@ -43,7 +43,7 @@ Plan several issues in Tempo Planner at once, with validation.
 | `dry_run` | `boolean` | No | When true (default) only validate and report; nothing is written. Show the report to the user and repeat with dry_run=false after they confirm. |
 | `atomic` | `boolean` | No | When true, any conflict writes nothing. When false, conflict-free items are written and the rest are skipped. |
 | `allow_overbooking` | `boolean` | No | Write even if a day goes over capacity. Use only after the user explicitly accepts the overbooking. |
-| `allow_absence_days` | `boolean` | No | Allow planning on days covered by an absence (vacation, sick leave). |
+| `allow_absence_days` | `boolean` | No | Allow planning on days with an absence (vacation, sick leave). Absence hours still use up capacity, so a full-day absence also needs allow_overbooking. |
 | `daily_limit_hours` | `number` | No | Cap on daily capacity used for validation, hours. |
 
 ---
@@ -65,7 +65,7 @@ Move, resize or re-describe a Tempo Planner allocation, with validation.
 | `description` | `string` | No | New description. |
 | `dry_run` | `boolean` | No | When true (default) only validate and report; nothing is written. Show the report to the user and repeat with dry_run=false after they confirm. |
 | `allow_overbooking` | `boolean` | No | Write even if a day goes over capacity. Use only after the user explicitly accepts the overbooking. |
-| `allow_absence_days` | `boolean` | No | Allow planning on days covered by an absence (vacation, sick leave). |
+| `allow_absence_days` | `boolean` | No | Allow planning on days with an absence (vacation, sick leave). Absence hours still use up capacity, so a full-day absence also needs allow_overbooking. |
 | `daily_limit_hours` | `number` | No | Cap on daily capacity used for validation, hours. |
 
 ---

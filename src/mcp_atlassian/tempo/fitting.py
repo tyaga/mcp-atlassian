@@ -80,7 +80,9 @@ def fit_placement(
 ) -> tuple[Placements, float]:
     """Greedily fill free hours from the first day on.
 
-    Returns the placements and the hours that did not fit before the end.
+    Absence hours always consume capacity; ``allow_absence_days`` only stops
+    days with a partial absence from being skipped. Returns the placements
+    and the hours that did not fit before the end.
     """
     remaining = round(total_hours, 2)
     placements: Placements = {}
@@ -91,11 +93,7 @@ def fit_placement(
             continue
         if load.absence > 0 and not allow_absence_days:
             continue
-        free = (
-            load.free
-            if not allow_absence_days
-            else round(max(load.capacity - load.planned, 0.0), 2)
-        )
+        free = load.free
         if free <= 0:
             continue
         added = round(min(free, remaining), 2)

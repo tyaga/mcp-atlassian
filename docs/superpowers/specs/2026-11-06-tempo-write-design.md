@@ -47,7 +47,8 @@ Exactly one of `hours_per_day` / `total_hours`:
   (default: `date_from` + `TEMPO_MAX_WINDOW_DAYS` − 1). Per day
   `free = capacity − absence − planned`; non-working days and days with
   `free ≤ 0` are skipped; absence days are skipped unless
-  `allow_absence_days`. Hours placed on a day = `min(free, remaining)`.
+  `allow_absence_days`, and absence hours always consume capacity, so the
+  flag only opens days with a partial absence. Hours placed on a day = `min(free, remaining)`.
   Remaining hours at the deadline → conflict `does_not_fit`. Consecutive
   placements with equal hours become one allocation (non-working days inside
   a run do not break it; a working day with a different amount does).
@@ -77,7 +78,11 @@ Output:
 ```
 
 `ok` = no conflicts. `dry_run=true` never writes. `dry_run=false` writes only
-when `ok`; otherwise returns the report with `written=false`.
+when `ok`; otherwise returns the report with `written=false`. Allocations are
+created one by one; if Tempo rejects one, writing stops, `ok=false`, `error`
+names the ids already created and `written` is true when any exist. The
+assignee is sent as the user key (Tempo also accepts a username, which can
+collide with a legacy key) and the returned `userKey` is checked.
 
 ### `tempo_bulk_plan_work`
 
@@ -88,7 +93,8 @@ total_hours?, description?}]`, `team?`, `dry_run=true`, `atomic=true`,
 Items are validated in order; each accepted item's placements are added to
 the in-memory load before the next item is checked, so a fit item sees the
 slots an earlier item took. `atomic=true`: any conflict → nothing is
-written, every item reported. `atomic=false`: conflict-free items are
+written, every item reported; a Tempo failure while writing deletes the
+allocations this call created (`rolled_back`). `atomic=false`: conflict-free items are
 written, others reported as `skipped`. Output: `{"ok", "written",
 "results": [<plan_work output> + {"index", "status": "planned" |
 "created" | "skipped"}]}`.
@@ -101,7 +107,9 @@ Input: `allocation_id`, `date_from?`, `date_to?`, `hours_per_day?`,
 
 `GET` the allocation, overlay the given fields, validate as fixed mode with
 the allocation's own rows excluded from existing plans (`allocationId`),
-then `PUT` the full body. Output as `tempo_plan_work` plus
+then `PUT` the full body. Only team-scoped `ISSUE` allocations with
+`includeNonWorkingDays=false` can be updated; `secondsPerDay` is kept as is
+unless `hours_per_day` is given. Output as `tempo_plan_work` plus
 `"allocation_id"` and `"before": {start, end, hours_per_day, description}`.
 
 ### `tempo_delete_plan`

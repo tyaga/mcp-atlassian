@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Protocol
 
+from requests.exceptions import HTTPError
+
+from mcp_atlassian.exceptions import MCPAtlassianAuthenticationError
 from mcp_atlassian.jira import JiraFetcher
 from mcp_atlassian.models.tempo import (
     TempoAllocation,
@@ -80,6 +83,17 @@ class _Target:
     team: TempoTeam
 
 
+def _record_failure(result: TempoPlanResult, message: str) -> None:
+    created = [str(a.allocation_id) for a in result.allocations if a.allocation_id]
+    tail = (
+        f"Created before the failure: {', '.join(created)}."
+        if created
+        else "Nothing was created."
+    )
+    result.ok = False
+    result.error = f"{message.rstrip('.')}. {tail}"
+
+
 def _positive(value: float | None, name: str) -> float:
     if value is None or value <= 0:
         raise ValueError(f"{name} must be a positive number of hours")
@@ -109,7 +123,15 @@ class PlanWriteMixin:
 
     def issue_ref(self: _Deps, issue_key: str) -> tuple[int, str, str]:
         """``(issue id, key, summary)`` from Jira."""
-        data: Any = self.jira.jira.get_issue(issue_key, fields="id,summary")
+        try:
+            data: Any = self.jira.jira.get_issue(issue_key, fields="id,summary")
+        except HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status in (401, 403):
+                raise MCPAtlassianAuthenticationError(
+                    f"Not allowed to read issue '{issue_key}' (HTTP {status})"
+                ) from exc
+            raise ValueError(f"Issue '{issue_key}' not found in Jira") from exc
         if not isinstance(data, dict) or not data.get("id"):
             raise ValueError(f"Issue '{issue_key}' not found in Jira")
         fields = data.get("fields") or {}
@@ -224,15 +246,46 @@ class PlanWriteMixin:
         ]
         return _Prepared(result=result, bodies=bodies, placements=placements)
 
-    def _write(self: _Deps, prepared: _Prepared) -> None:
-        for draft, body in zip(
-            prepared.result.allocations, prepared.bodies, strict=True
-        ):
-            created = TempoAllocation.from_api_response(
-                self.client.post(ALLOCATION_PATH, body)
-            )
+    def _write(self: _Deps, prepared: _Prepared) -> bool:
+        """POST every draft; on the first failure stop and record what exists.
+
+        Returns True when every allocation was created and assigned to the
+        intended user. On failure ``result.ok`` is false, ``result.error``
+        names the allocation ids already created, and ``result.written`` tells
+        whether anything reached Tempo.
+        """
+        result = prepared.result
+        expected_key = result.user.key
+        for draft, body in zip(result.allocations, prepared.bodies, strict=True):
+            try:
+                created = TempoAllocation.from_api_response(
+                    self.client.post(ALLOCATION_PATH, body)
+                )
+            except (ValueError, MCPAtlassianAuthenticationError) as exc:
+                _record_failure(result, str(exc))
+                return False
             draft.allocation_id = created.id
-        prepared.result.written = True
+            result.written = True
+            if expected_key and created.user.key and created.user.key != expected_key:
+                _record_failure(
+                    result,
+                    f"Tempo assigned allocation {created.id} to user key "
+                    f"{created.user.key} instead of {expected_key}; check it and "
+                    "delete it if wrong",
+                )
+                return False
+        return True
+
+    def _roll_back(self: _Deps, allocation_ids: list[int]) -> list[int]:
+        """Delete allocations created earlier in an atomic batch."""
+        removed: list[int] = []
+        for allocation_id in allocation_ids:
+            try:
+                self.client.delete(f"{ALLOCATION_PATH}/{allocation_id}")
+            except (ValueError, MCPAtlassianAuthenticationError):
+                continue
+            removed.append(allocation_id)
+        return removed
 
     # ----- public operations ---------------------------------------------
 
@@ -343,16 +396,33 @@ class PlanWriteMixin:
             results.append(entry)
 
         all_ok = all(p is not None and p.result.ok for p in prepared)
-        written = False
+        summary: dict[str, Any] = {"ok": all_ok, "written": False}
         if not dry_run and (all_ok or not atomic):
+            created_ids: list[int] = []
             for prep, entry in zip(prepared, results, strict=True):
                 if prep is None or not prep.result.ok:
                     continue
-                PlanWriteMixin._write(self, prep)
+                succeeded = PlanWriteMixin._write(self, prep)
+                created_ids.extend(
+                    a.allocation_id
+                    for a in prep.result.allocations
+                    if a.allocation_id is not None
+                )
                 entry.update(prep.result.to_simplified_dict())
-                entry["status"] = "created"
-                written = True
-        return {"ok": all_ok, "written": written, "results": results}
+                if succeeded:
+                    entry["status"] = "created"
+                    continue
+                entry["status"] = "failed"
+                summary["ok"] = False
+                summary["error"] = prep.result.error
+                if atomic:
+                    rolled_back = PlanWriteMixin._roll_back(self, created_ids)
+                    summary["rolled_back"] = rolled_back
+                    created_ids = [i for i in created_ids if i not in rolled_back]
+                    break
+            summary["written"] = bool(created_ids)
+        summary["results"] = results
+        return summary
 
     def update_plan(
         self: _Deps,
@@ -373,7 +443,22 @@ class PlanWriteMixin:
         )
         if not current.id:
             raise ValueError(f"Allocation {allocation_id} not found")
-        user_ref = self.resolve_users([current.user.username or current.user.key])[0]
+        if current.plan_item_type != "ISSUE":
+            raise ValueError(
+                f"Allocation {allocation_id} plans a {current.plan_item_type}; "
+                "only issue plans can be updated here"
+            )
+        if current.scope_type != "team":
+            raise ValueError(
+                f"Allocation {allocation_id} has scope '{current.scope_type}'; "
+                "only team-scoped plans can be updated here"
+            )
+        if current.include_non_working_days:
+            raise ValueError(
+                f"Allocation {allocation_id} includes non-working days, which "
+                "the validation does not model; change it in Tempo"
+            )
+        user_ref = self.resolve_users([current.user.key or current.user.username])[0]
         target = _Target(
             user=user_ref,
             issue_id=current.issue_id,
@@ -432,7 +517,11 @@ class PlanWriteMixin:
                     team_id=current.team_id,
                     start=new_from.isoformat(),
                     end=new_to.isoformat(),
-                    seconds_per_day=round(new_hours * 3600),
+                    seconds_per_day=(
+                        round(new_hours * 3600)
+                        if hours_per_day is not None
+                        else current.seconds_per_day
+                    ),
                     include_non_working_days=current.include_non_working_days,
                     description=new_description,
                 ).to_request_body(),
