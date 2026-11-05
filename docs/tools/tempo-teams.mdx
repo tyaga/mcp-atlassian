@@ -1,0 +1,30 @@
+---
+title: "Tempo Teams"
+description: "Tempo teams, members and roles (Server/Data Center)"
+---
+
+### Tempo List Teams
+
+List Tempo teams.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | `string` | No | Optional case-insensitive substring to filter team names. |
+
+---
+
+### Tempo Get Team Members
+
+Get members of a Tempo team with their roles and availability.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `team` | `string` | Yes | Tempo team id or team name (case-insensitive). |
+| `role` | `string` | No | Keep only members whose team role contains this text (case-insensitive), e.g. 'automation'. |
+| `active_only` | `boolean` | No | Drop members inactive in Jira, with inactive membership, or whose membership end date has passed. |
+
+---

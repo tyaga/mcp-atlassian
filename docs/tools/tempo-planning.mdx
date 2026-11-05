@@ -1,0 +1,85 @@
+---
+title: "Tempo Planning"
+description: "Tempo plans, schedules, worklogs, workload and plan vs. actual (Server/Data Center)"
+---
+
+### Tempo Get Plans
+
+Get planned time from Tempo Planner for a team or a list of users.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `date_from` | `string` | Yes | Start date, YYYY-MM-DD. |
+| `date_to` | `string` | Yes | End date, YYYY-MM-DD, inclusive. The window may span at most TEMPO_MAX_WINDOW_DAYS days (default 92). |
+| `team` | `string` | No | Tempo team id or name. Provide either 'team' or 'users', not both. |
+| `users` | `array` | No | User identifiers (username, key, display name or e-mail). Provide either 'team' or 'users', not both. |
+| `issue_key` | `string` | No | Keep only rows for this issue key, e.g. 'PROJ-123'. |
+| `include_absences` | `boolean` | No | Include plan items that look like absences (vacation, sick leave, day off) according to TEMPO_ABSENCE_PATTERN. |
+
+---
+
+### Tempo Get User Schedule
+
+Get working days, weekends and holidays for users.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `users` | `array` | Yes | User identifiers: username, user key, display name or e-mail. Each must resolve to exactly one Jira user. |
+| `date_from` | `string` | Yes | Start date, YYYY-MM-DD. |
+| `date_to` | `string` | Yes | End date, YYYY-MM-DD, inclusive. The window may span at most TEMPO_MAX_WINDOW_DAYS days (default 92). |
+
+---
+
+### Tempo Get Worklogs
+
+Get logged work (Tempo worklogs) for a team or a list of users.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `date_from` | `string` | Yes | Start date, YYYY-MM-DD. |
+| `date_to` | `string` | Yes | End date, YYYY-MM-DD, inclusive. The window may span at most TEMPO_MAX_WINDOW_DAYS days (default 92). |
+| `team` | `string` | No | Tempo team id or name. Provide either 'team' or 'users', not both. |
+| `users` | `array` | No | User identifiers (username, key, display name or e-mail). Provide either 'team' or 'users', not both. |
+| `issue_key` | `string` | No | Keep only rows for this issue key, e.g. 'PROJ-123'. |
+
+---
+
+### Tempo Get Workload
+
+Compute planned load, free capacity and overbooking per user and period.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `date_from` | `string` | Yes | Start date, YYYY-MM-DD. |
+| `date_to` | `string` | Yes | End date, YYYY-MM-DD, inclusive. The window may span at most TEMPO_MAX_WINDOW_DAYS days (default 92). |
+| `team` | `string` | No | Tempo team id or name. Provide either 'team' or 'users', not both. |
+| `users` | `array` | No | User identifiers (username, key, display name or e-mail). Provide either 'team' or 'users', not both. |
+| `granularity` | `string` | No | Period size: 'day', 'week' (ISO weeks, labelled YYYY-Www) or 'total'. |
+| `role` | `string` | No | Keep only members whose team role contains this text (case-insensitive), e.g. 'automation'. |
+| `daily_limit_hours` | `number` | No | Cap on daily capacity. Capacity is the smaller of the user's schedule norm and this value. |
+
+---
+
+### Tempo Get Plan Vs Actual
+
+Compare planned hours (Tempo Planner) with logged hours (Tempo worklogs).
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `date_from` | `string` | Yes | Start date, YYYY-MM-DD. |
+| `date_to` | `string` | Yes | End date, YYYY-MM-DD, inclusive. The window may span at most TEMPO_MAX_WINDOW_DAYS days (default 92). |
+| `team` | `string` | No | Tempo team id or name. Provide either 'team' or 'users', not both. |
+| `users` | `array` | No | User identifiers (username, key, display name or e-mail). Provide either 'team' or 'users', not both. |
+| `granularity` | `string` | No | Period size: 'day', 'week' (ISO weeks, labelled YYYY-Www) or 'total'. |
+
+---

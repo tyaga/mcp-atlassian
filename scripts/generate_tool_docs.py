@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate MDX documentation for all MCP tools.
 
-Introspects the FastMCP server instances (jira_mcp, confluence_mcp) to extract
+Introspects the FastMCP server instances (jira_mcp, confluence_mcp, tempo_mcp) to extract
 tool metadata, then renders per-category MDX pages via a Jinja2 template.
 
 Usage:
@@ -156,6 +156,17 @@ CATEGORY_TOOLS: dict[str, list[str]] = {
         "confluence_get_page_template",
         "confluence_create_page_from_template",
     ],
+    "tempo-teams": [
+        "tempo_list_teams",
+        "tempo_get_team_members",
+    ],
+    "tempo-planning": [
+        "tempo_get_plans",
+        "tempo_get_user_schedule",
+        "tempo_get_worklogs",
+        "tempo_get_workload",
+        "tempo_get_plan_vs_actual",
+    ],
 }
 
 CATEGORY_META: dict[str, dict[str, str]] = {
@@ -217,6 +228,17 @@ CATEGORY_META: dict[str, dict[str, str]] = {
     "confluence-templates": {
         "title": "Confluence Templates",
         "description": "List page templates and create pages from them",
+    },
+    "tempo-teams": {
+        "title": "Tempo Teams",
+        "description": "Tempo teams, members and roles (Server/Data Center)",
+    },
+    "tempo-planning": {
+        "title": "Tempo Planning",
+        "description": (
+            "Tempo plans, schedules, worklogs, workload and plan vs. actual "
+            "(Server/Data Center)"
+        ),
     },
 }
 
@@ -286,6 +308,8 @@ class ToolCounts:
     jira_toolsets: int
     confluence_toolsets: int
     core_toolsets: int
+    tempo_tools: int = 0
+    tempo_toolsets: int = 0
 
 
 @dataclass
@@ -357,12 +381,14 @@ def _make_display_name(tool_name: str, annotations: Any) -> str:
 
 
 async def get_all_tools() -> dict[str, dict[str, Any]]:
-    """Extract tools from both FastMCP server instances."""
+    """Extract tools from the FastMCP server instances."""
     from mcp_atlassian.servers.confluence import confluence_mcp
     from mcp_atlassian.servers.jira import jira_mcp
+    from mcp_atlassian.servers.tempo import tempo_mcp
 
     jira_tools = await jira_mcp.list_tools()
     confluence_tools = await confluence_mcp.list_tools()
+    tempo_tools = await tempo_mcp.list_tools()
 
     all_tools: dict[str, dict[str, Any]] = {}
 
@@ -378,6 +404,16 @@ async def get_all_tools() -> dict[str, dict[str, Any]]:
 
     for tool in confluence_tools:
         prefixed = f"confluence_{tool.name}"
+        mcp_tool = tool.to_mcp_tool(name=prefixed)
+        all_tools[prefixed] = {
+            "mcp_tool": mcp_tool,
+            "tags": tool.tags if hasattr(tool, "tags") else set(),
+            "annotations": getattr(tool, "annotations", None),
+            "is_write": "write" in (tool.tags if hasattr(tool, "tags") else set()),
+        }
+
+    for tool in tempo_tools:
+        prefixed = f"tempo_{tool.name}"
         mcp_tool = tool.to_mcp_tool(name=prefixed)
         all_tools[prefixed] = {
             "mcp_tool": mcp_tool,
@@ -480,6 +516,7 @@ def get_tool_counts(tools: dict[str, dict[str, Any]]) -> ToolCounts:
         CONFLUENCE_TOOLSETS,
         DEFAULT_TOOLSETS,
         JIRA_TOOLSETS,
+        TEMPO_TOOLSETS,
         get_toolset_tag,
     )
 
@@ -487,12 +524,14 @@ def get_tool_counts(tools: dict[str, dict[str, Any]]) -> ToolCounts:
         total_tools=len(tools),
         jira_tools=sum(name.startswith("jira_") for name in tools),
         confluence_tools=sum(name.startswith("confluence_") for name in tools),
+        tempo_tools=sum(name.startswith("tempo_") for name in tools),
         core_tools=sum(
             get_toolset_tag(info["tags"]) in DEFAULT_TOOLSETS for info in tools.values()
         ),
         total_toolsets=len(ALL_TOOLSETS),
         jira_toolsets=len(JIRA_TOOLSETS),
         confluence_toolsets=len(CONFLUENCE_TOOLSETS),
+        tempo_toolsets=len(TEMPO_TOOLSETS),
         core_toolsets=len(DEFAULT_TOOLSETS),
     )
 
@@ -506,6 +545,7 @@ def build_toolset_docs(
         CONFLUENCE_TOOLSETS,
         DEFAULT_TOOLSETS,
         JIRA_TOOLSETS,
+        TEMPO_TOOLSETS,
         get_toolset_tag,
     )
 
@@ -527,6 +567,7 @@ def build_toolset_docs(
     return {
         "jira": [toolsets_by_name[name] for name in JIRA_TOOLSETS],
         "confluence": [toolsets_by_name[name] for name in CONFLUENCE_TOOLSETS],
+        "tempo": [toolsets_by_name[name] for name in TEMPO_TOOLSETS],
         "legacy": [toolsets_by_name["legacy"]],
     }
 
@@ -757,6 +798,11 @@ COUNT_RULES = (
             re.IGNORECASE,
         ),
         "confluence_toolsets",
+    ),
+    CountRule(
+        "docs/tools-reference.mdx",
+        re.compile(r"\*\*Tempo Toolsets \((\d+)\):\*\*", re.IGNORECASE),
+        "tempo_toolsets",
     ),
     CountRule(
         "docs/tools-reference.mdx",

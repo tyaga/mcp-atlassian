@@ -11,8 +11,9 @@
 | `src/mcp_atlassian/` | Library source (Python ≥ 3.10) |
 | `  ├─ jira/` | Jira client + mixins (issues, search, SLA, metrics, …) |
 | `  ├─ confluence/` | Confluence client + mixins (pages, search, analytics, …) |
+| `  ├─ tempo/` | Tempo Server/DC read-only mixins over the Jira session (teams, plans, workload) |
 | `  ├─ models/` | Pydantic v2 data models (`ApiModel` base) |
-| `  ├─ servers/` | FastMCP server instances (`jira_mcp`, `confluence_mcp`) |
+| `  ├─ servers/` | FastMCP server instances (`jira_mcp`, `confluence_mcp`, `tempo_mcp`) |
 | `  ├─ preprocessing/` | Content conversion (ADF/Storage → Markdown) |
 | `  └─ utils/` | Shared utilities (auth, logging, SSL, decorators) |
 | `tests/` | Pytest suite — unit, integration, real-API validation |

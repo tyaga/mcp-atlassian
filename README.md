@@ -92,7 +92,7 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 | [Authentication](https://mcp-atlassian.soomiles.com/docs/authentication) | API tokens, PAT, OAuth 2.0 |
 | [Configuration](https://mcp-atlassian.soomiles.com/docs/configuration) | IDE setup, environment variables |
 | [HTTP Transport](https://mcp-atlassian.soomiles.com/docs/http-transport) | SSE, streamable-http, multi-user |
-| [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) | All Jira & Confluence tools |
+| [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) | All Jira, Confluence & Tempo tools |
 | [Troubleshooting](https://mcp-atlassian.soomiles.com/docs/troubleshooting) | Common issues & debugging |
 
 ## Compatibility
@@ -114,7 +114,9 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 | `jira_update_issue` - Update issues | `confluence_update_page` - Update pages |
 | `jira_transition_issue` - Change status | `confluence_add_comment` - Add comments |
 
-**98 tools total** — See [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) for the complete list.
+**Tempo (Server/Data Center, read-only):** `tempo_get_team_members`, `tempo_get_plans`, `tempo_get_workload`, `tempo_get_plan_vs_actual` — team load, free capacity, overbooking and plan vs. logged hours over the Jira connection. Enable with `TOOLSETS=default,tempo_teams,tempo_planning`.
+
+**105 tools total** — See [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) for the complete list.
 
 ## Security
 

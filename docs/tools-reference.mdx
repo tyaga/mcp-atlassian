@@ -1,9 +1,9 @@
 ---
 title: "Tools Reference"
-description: "Overview of all 98 MCP tools for Jira and Confluence — organized by category with quick links"
+description: "Overview of all 105 MCP tools for Jira, Confluence and Tempo — organized by category with quick links"
 ---
 
-MCP Atlassian provides **98 tools** for interacting with Jira and Confluence. Tools are organized by category below.
+MCP Atlassian provides **105 tools** for interacting with Jira, Confluence and Tempo (Server/Data Center). Tools are organized by category below.
 
 ## Jira Tools
 
@@ -57,6 +57,19 @@ MCP Atlassian provides **98 tools** for interacting with Jira and Confluence. To
   </Card>
 </CardGroup>
 
+## Tempo Tools
+
+Read-only tools for Tempo Timesheets and Tempo Planner on Jira Server/Data Center. They reuse the Jira connection and need no extra configuration.
+
+<CardGroup cols={2}>
+  <Card title="Teams" icon="users" href="/docs/tools/tempo-teams">
+    Teams, members and roles
+  </Card>
+  <Card title="Planning" icon="calendar-days" href="/docs/tools/tempo-planning">
+    Plans, schedules, worklogs, workload, plan vs. actual
+  </Card>
+</CardGroup>
+
 ## Tool Access Control
 
 ### Toolset Groups
@@ -97,6 +110,13 @@ Toolsets group related tools for easier management via `TOOLSETS` env var or `--
 | `confluence_templates` | No | `confluence_list_page_templates`, `confluence_get_page_template`, `confluence_create_page_from_template` |
 | `confluence_permissions` | No | `confluence_check_content_permissions`, `confluence_get_space_permissions` |
 
+**Tempo Toolsets (2):**
+
+| Toolset | Core | Tools |
+|---------|:----:|-------|
+| `tempo_teams` | No | `tempo_list_teams`, `tempo_get_team_members` |
+| `tempo_planning` | No | `tempo_get_user_schedule`, `tempo_get_plans`, `tempo_get_worklogs`, `tempo_get_workload`, `tempo_get_plan_vs_actual` |
+
 **Migration Toolsets (1):**
 
 | Toolset | Core | Purpose | Tools |
@@ -111,7 +131,7 @@ TOOLSETS=default,jira_agile,jira_attachments
 # Enable deprecated tools only while migrating to their replacements:
 TOOLSETS=legacy
 
-# Enable all toolsets (98 tools)
+# Enable all toolsets (105 tools)
 TOOLSETS=all
 
 # Command line

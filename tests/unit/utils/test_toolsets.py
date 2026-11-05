@@ -271,3 +271,23 @@ class TestToolsetTagCompleteness:
         assert len(confluence_tools) == 35, (
             f"Expected 35 Confluence tools, got {len(confluence_tools)}"
         )
+
+    @pytest.fixture()
+    def tempo_tools(self):
+        """Get all registered Tempo tools as a name-indexed dict."""
+        import asyncio
+
+        from mcp_atlassian.servers.tempo import tempo_mcp
+
+        async def _load() -> dict:
+            return {tool.name: tool for tool in await tempo_mcp.list_tools()}
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_load())
+        finally:
+            loop.close()
+
+    def test_tempo_tool_count(self, tempo_tools):
+        """Verify expected number of Tempo tools."""
+        assert len(tempo_tools) == 7, f"Expected 7 Tempo tools, got {len(tempo_tools)}"
