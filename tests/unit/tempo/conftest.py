@@ -37,6 +37,12 @@ class FakeTempoClient:
     def post(self, path: str, payload: dict[str, Any]) -> Any:
         return self._dispatch("POST", path, payload)
 
+    def put(self, path: str, payload: dict[str, Any]) -> Any:
+        return self._dispatch("PUT", path, payload)
+
+    def delete(self, path: str) -> Any:
+        return self._dispatch("DELETE", path, None)
+
 
 def make_fetcher(
     routes: dict[tuple[str, str], Route], jira: MagicMock | None = None

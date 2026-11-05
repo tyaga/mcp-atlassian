@@ -217,3 +217,151 @@ class TestDefaults:
         assert TempoScheduleDay.from_api_response({}).type == ""
         assert TempoUserSchedule.from_api_response({}, user=TempoUserRef()).days == []
         assert TempoWorklog.from_api_response({}, user=TempoUserRef()).hours == 0.0
+
+
+ALLOCATION = {
+    "id": 347,
+    "assignee": {"key": "jdoe", "type": "user", "userKey": "JIRAUSER1001"},
+    "planItem": {
+        "key": "PROJ-123",
+        "id": 4242,
+        "type": "ISSUE",
+        "summary": "Write tests",
+        "projectKey": "PROJ",
+    },
+    "scope": {"id": 7, "type": "team"},
+    "commitment": 12.5,
+    "secondsPerDay": 3600,
+    "includeNonWorkingDays": False,
+    "start": "2026-03-02",
+    "startTime": "00:00",
+    "end": "2026-03-03",
+    "description": "Probe",
+    "seconds": 7200,
+}
+
+
+class TestTempoAllocation:
+    def test_allocation_from_api_response(self):
+        from mcp_atlassian.models.tempo import TempoAllocation
+
+        allocation = TempoAllocation.from_api_response(ALLOCATION)
+        assert allocation.id == 347
+        assert allocation.user.to_simplified_dict() == {
+            "key": "JIRAUSER1001",
+            "username": "jdoe",
+            "display_name": "",
+        }
+        assert (allocation.issue_key, allocation.issue_id, allocation.summary) == (
+            "PROJ-123",
+            4242,
+            "Write tests",
+        )
+        assert allocation.team_id == 7
+        assert (allocation.start, allocation.end) == ("2026-03-02", "2026-03-03")
+        assert (allocation.seconds_per_day, allocation.hours_per_day) == (3600, 1.0)
+        assert allocation.include_non_working_days is False
+        assert allocation.description == "Probe"
+
+    def test_allocation_request_body(self):
+        from mcp_atlassian.models.tempo import TempoAllocation
+
+        allocation = TempoAllocation.from_api_response(ALLOCATION)
+        assert allocation.to_request_body() == {
+            "assignee": {"key": "jdoe", "type": "user"},
+            "planItem": {"id": 4242, "type": "ISSUE"},
+            "scope": {"id": 7, "type": "team"},
+            "start": "2026-03-02",
+            "end": "2026-03-03",
+            "secondsPerDay": 3600,
+            "includeNonWorkingDays": False,
+            "description": "Probe",
+        }
+
+    def test_allocation_simplified_dict(self):
+        from mcp_atlassian.models.tempo import TempoAllocation
+
+        data = TempoAllocation.from_api_response(ALLOCATION).to_simplified_dict()
+        assert data["allocation_id"] == 347
+        assert data["hours_per_day"] == 1.0
+        assert data["issue_key"] == "PROJ-123"
+        assert data["team_id"] == 7
+
+    def test_allocation_defaults(self):
+        from mcp_atlassian.models.tempo import TempoAllocation
+
+        allocation = TempoAllocation.from_api_response({})
+        assert allocation.id == 0
+        assert allocation.hours_per_day == 0.0
+
+
+class TestTempoPlanResult:
+    def test_plan_result_simplified_dict(self):
+        from mcp_atlassian.models.tempo import (
+            TempoAllocationDraft,
+            TempoPlanConflict,
+            TempoPlanDay,
+            TempoPlanResult,
+        )
+
+        result = TempoPlanResult(
+            ok=False,
+            written=False,
+            mode="fixed",
+            user=TempoUserRef(key="JIRAUSER1001", username="jdoe"),
+            issue={"key": "PROJ-123", "id": 4242, "summary": "Write tests"},
+            team={"id": 7, "name": "Platform QA"},
+            days=[
+                TempoPlanDay(
+                    day="2026-03-02",
+                    capacity_hours=8.0,
+                    planned_hours=6.0,
+                    absence_hours=0.0,
+                    added_hours=4.0,
+                    free_after_hours=0.0,
+                    status_after="overbooked",
+                )
+            ],
+            conflicts=[
+                TempoPlanConflict(
+                    day="2026-03-02", type="overbooked", message="2.0h over"
+                )
+            ],
+            allocations=[
+                TempoAllocationDraft(
+                    start="2026-03-02",
+                    end="2026-03-02",
+                    hours_per_day=4.0,
+                    total_hours=4.0,
+                    working_days=1,
+                )
+            ],
+        )
+        data = result.to_simplified_dict()
+        assert data["ok"] is False and data["written"] is False
+        assert data["days"][0]["status_after"] == "overbooked"
+        assert data["conflicts"][0]["type"] == "overbooked"
+        assert data["allocations"][0] == {
+            "allocation_id": None,
+            "start": "2026-03-02",
+            "end": "2026-03-02",
+            "hours_per_day": 4.0,
+            "total_hours": 4.0,
+            "working_days": 1,
+        }
+        assert "allocation_id" not in data
+        assert "before" not in data
+
+    def test_plan_result_includes_update_fields(self):
+        from mcp_atlassian.models.tempo import TempoPlanResult
+
+        result = TempoPlanResult(
+            ok=True,
+            written=True,
+            mode="fixed",
+            allocation_id=347,
+            before={"start": "2026-03-02"},
+        )
+        data = result.to_simplified_dict()
+        assert data["allocation_id"] == 347
+        assert data["before"] == {"start": "2026-03-02"}

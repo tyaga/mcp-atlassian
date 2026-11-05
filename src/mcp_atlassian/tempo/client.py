@@ -67,3 +67,11 @@ class TempoClient:
     def post(self, path: str, payload: dict[str, Any]) -> Any:
         """POST ``payload`` as JSON to ``path`` and return parsed JSON."""
         return self._request("POST", path, json_data=payload)
+
+    def put(self, path: str, payload: dict[str, Any]) -> Any:
+        """PUT ``payload`` as JSON to ``path`` and return parsed JSON."""
+        return self._request("PUT", path, json_data=payload)
+
+    def delete(self, path: str) -> Any:
+        """DELETE ``path``; returns parsed JSON or ``None`` on an empty body."""
+        return self._request("DELETE", path)

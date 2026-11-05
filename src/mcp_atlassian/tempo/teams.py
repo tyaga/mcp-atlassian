@@ -6,7 +6,7 @@ import difflib
 from datetime import date, datetime, timezone
 from typing import Any, Protocol
 
-from mcp_atlassian.models.tempo import TempoTeam, TempoTeamMember
+from mcp_atlassian.models.tempo import TempoTeam, TempoTeamMember, TempoUserRef
 
 from .client import TempoClient
 
@@ -81,6 +81,16 @@ class TeamsMixin:
             needle = role.strip().casefold()
             members = [member for member in members if needle in member.role.casefold()]
         return members
+
+    def get_user_memberships(self: _HasClient, user: TempoUserRef) -> list[TempoTeam]:
+        """Teams the user is a member of, in Tempo's order."""
+        who = user.username or user.key
+        data = self.client.get(f"/rest/tempo-teams/2/user/{who}/memberships")
+        teams: list[TempoTeam] = []
+        for item in data if isinstance(data, list) else []:
+            if isinstance(item, dict) and isinstance(item.get("team"), dict):
+                teams.append(TempoTeam.from_api_response(item["team"]))
+        return teams
 
 
 def team_summary(team: TempoTeam) -> dict[str, Any]:

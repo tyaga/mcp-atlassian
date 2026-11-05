@@ -79,3 +79,33 @@ class TestTempoClient:
         client = TempoClient(session, "https://jira.example.com")
 
         assert client.get("/rest/x") is None
+
+
+class TestTempoClientWrites:
+    def test_put_sends_payload(self):
+        session = MagicMock()
+        session.request.return_value = _response(200, "{}", payload={"id": 1})
+        client = TempoClient(session, "https://jira.example.com")
+
+        assert client.put("/rest/tempo-planning/1/allocation/1", {"id": 1}) == {"id": 1}
+        kwargs = session.request.call_args.kwargs
+        assert (kwargs["method"], kwargs["json"]) == ("PUT", {"id": 1})
+
+    def test_delete_returns_none_on_204(self):
+        session = MagicMock()
+        session.request.return_value = _response(204, "")
+        client = TempoClient(session, "https://jira.example.com")
+
+        assert client.delete("/rest/tempo-planning/1/allocation/1") is None
+        assert session.request.call_args.kwargs["method"] == "DELETE"
+
+    def test_400_includes_tempo_validation_message(self):
+        session = MagicMock()
+        session.request.return_value = _response(
+            400,
+            '{"errors":{"scope":"Scope Type is not valid"},"reasons":["VALIDATION_FAILED"]}',
+        )
+        client = TempoClient(session, "https://jira.example.com")
+
+        with pytest.raises(ValueError, match="Scope Type is not valid"):
+            client.post("/rest/tempo-planning/1/allocation", {})

@@ -1,5 +1,12 @@
 """Pydantic models for Tempo Server/DC data."""
 
+from .allocation import (
+    TempoAllocation,
+    TempoAllocationDraft,
+    TempoPlanConflict,
+    TempoPlanDay,
+    TempoPlanResult,
+)
 from .common import TempoUserRef, seconds_to_hours
 from .plan import TempoPlanItem
 from .schedule import TempoScheduleDay, TempoUserSchedule
@@ -17,7 +24,12 @@ from .workload import (
 from .worklog import TempoWorklog
 
 __all__ = [
+    "TempoAllocation",
+    "TempoAllocationDraft",
+    "TempoPlanConflict",
+    "TempoPlanDay",
     "TempoPlanItem",
+    "TempoPlanResult",
     "TempoPlanVsActualIssue",
     "TempoPlanVsActualPeriod",
     "TempoPlanVsActualReport",

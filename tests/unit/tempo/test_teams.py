@@ -131,3 +131,39 @@ class TestMembersForWindow:
             fetcher.get_team_members(team, window=(date(2026, 3, 2), date(2026, 3, 8)))
             == []
         )
+
+
+class TestUserMemberships:
+    def test_get_user_memberships(self):
+        from mcp_atlassian.models.tempo import TempoUserRef
+
+        fetcher = make_fetcher(
+            {
+                ("GET", "/rest/tempo-teams/2/user/jdoe/memberships"): [
+                    {
+                        "id": 1,
+                        "availability": "100",
+                        "team": {"id": 7, "name": "Platform QA"},
+                        "role": {"name": "Member"},
+                    },
+                    {
+                        "id": 2,
+                        "availability": "50",
+                        "team": {"id": 9, "name": "Mobile"},
+                        "role": {"name": "Member"},
+                    },
+                ]
+            }
+        )
+        teams = fetcher.get_user_memberships(
+            TempoUserRef(key="JIRAUSER1001", username="jdoe")
+        )
+        assert [(t.id, t.name) for t in teams] == [(7, "Platform QA"), (9, "Mobile")]
+
+    def test_get_user_memberships_uses_key_without_username(self):
+        from mcp_atlassian.models.tempo import TempoUserRef
+
+        fetcher = make_fetcher(
+            {("GET", "/rest/tempo-teams/2/user/JIRAUSER1001/memberships"): []}
+        )
+        assert fetcher.get_user_memberships(TempoUserRef(key="JIRAUSER1001")) == []
