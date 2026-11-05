@@ -13,6 +13,7 @@ from mcp.types import Tool as MCPTool
 
 from mcp_atlassian.models.tempo import (
     TempoPlanItem,
+    TempoPlanVsActualReport,
     TempoTeam,
     TempoTeamMember,
     TempoUserRef,
@@ -275,4 +276,26 @@ class TestWorkloadTool:
             date(2026, 3, 8),
             granularity="week",
             daily_limit_hours=6.0,
+        )
+
+
+@pytest.mark.anyio
+class TestPlanVsActualTool:
+    async def test_get_plan_vs_actual_tool(self, tempo_client, fake_tempo_fetcher):
+        scope = TempoScope(
+            team=None, users=[TempoUserRef(key="JIRAUSER1001", username="jdoe")]
+        )
+        fake_tempo_fetcher.resolve_scope.return_value = scope
+        fake_tempo_fetcher.get_plan_vs_actual.return_value = TempoPlanVsActualReport(
+            date_from="2026-03-02", date_to="2026-03-08", granularity="week"
+        )
+        response = await tempo_client.call_tool(
+            "get_plan_vs_actual",
+            {"users": ["jdoe"], "date_from": "2026-03-02", "date_to": "2026-03-08"},
+        )
+        data = json.loads(response.content[0].text)
+        assert data["granularity"] == "week"
+        assert data["users"] == []
+        fake_tempo_fetcher.get_plan_vs_actual.assert_called_once_with(
+            scope, date(2026, 3, 2), date(2026, 3, 8), granularity="week"
         )

@@ -310,3 +310,33 @@ async def get_workload(
     if scope.team is not None:
         payload["team"] = team_summary(scope.team)
     return _dump(payload)
+
+
+@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+async def get_plan_vs_actual(
+    ctx: Context,
+    date_from: DATE_FROM_PARAM,
+    date_to: DATE_TO_PARAM,
+    team: TEAM_OPT_PARAM = None,
+    users: USERS_OPT_PARAM = None,
+    granularity: Annotated[str, Field(description=GRANULARITY_DESC)] = "week",
+) -> str:
+    """Compare planned hours (Tempo Planner) with logged hours (Tempo worklogs).
+
+    Absence plan items are excluded. ``delta_hours`` is logged minus planned.
+
+    Returns:
+        JSON ``{"from", "to", "granularity", "team"?, "users": [{user, periods:
+        [{period, from, to, planned_hours, logged_hours, delta_hours, by_issue,
+        logged_unplanned, planned_not_logged}]}]}``.
+    """
+    start, end = parse_window(date_from, date_to)
+    tempo = await get_tempo_fetcher(ctx)
+    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users)
+    report = await run_jira_fetcher_call(
+        tempo.get_plan_vs_actual, scope, start, end, granularity=granularity
+    )
+    payload = report.to_simplified_dict()
+    if scope.team is not None:
+        payload["team"] = team_summary(scope.team)
+    return _dump(payload)

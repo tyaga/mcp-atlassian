@@ -9,12 +9,17 @@ from typing import Any, Protocol
 
 from mcp_atlassian.models.tempo import (
     TempoPlanItem,
+    TempoPlanVsActualIssue,
+    TempoPlanVsActualPeriod,
+    TempoPlanVsActualReport,
+    TempoUserPlanVsActual,
     TempoUserRef,
     TempoUserSchedule,
     TempoUserWorkload,
     TempoWorkloadItem,
     TempoWorkloadPeriod,
     TempoWorkloadReport,
+    TempoWorklog,
 )
 
 from .common import Bucket, buckets_for, seconds_to_hours
@@ -202,6 +207,90 @@ def build_workload(
     )
 
 
+def _plan_vs_actual_period(
+    bucket: Bucket,
+    plans: list[TempoPlanItem],
+    worklogs: list[TempoWorklog],
+) -> TempoPlanVsActualPeriod:
+    label, start, end = bucket
+    lo, hi = start.isoformat(), end.isoformat()
+    planned: dict[str, int] = defaultdict(int)
+    logged: dict[str, int] = defaultdict(int)
+    summaries: dict[str, str] = {}
+    for plan in plans:
+        if lo <= plan.day <= hi:
+            planned[plan.issue_key] += plan.planned_seconds
+            summaries.setdefault(plan.issue_key, plan.summary)
+    for worklog in worklogs:
+        if lo <= worklog.day <= hi:
+            logged[worklog.issue_key] += worklog.seconds
+            summaries.setdefault(worklog.issue_key, worklog.summary)
+    by_issue = []
+    for issue_key in sorted(set(planned) | set(logged)):
+        planned_hours = seconds_to_hours(planned.get(issue_key, 0))
+        logged_hours = seconds_to_hours(logged.get(issue_key, 0))
+        by_issue.append(
+            TempoPlanVsActualIssue(
+                issue_key=issue_key,
+                summary=summaries.get(issue_key, ""),
+                planned_hours=planned_hours,
+                logged_hours=logged_hours,
+                delta_hours=round(logged_hours - planned_hours, 2),
+            )
+        )
+    planned_total = seconds_to_hours(sum(planned.values()))
+    logged_total = seconds_to_hours(sum(logged.values()))
+    return TempoPlanVsActualPeriod(
+        period=label,
+        date_from=lo,
+        date_to=hi,
+        planned_hours=planned_total,
+        logged_hours=logged_total,
+        delta_hours=round(logged_total - planned_total, 2),
+        by_issue=by_issue,
+        logged_unplanned=[i.issue_key for i in by_issue if i.planned_hours == 0],
+        planned_not_logged=[i.issue_key for i in by_issue if i.logged_hours == 0],
+    )
+
+
+def build_plan_vs_actual(
+    users: list[TempoUserRef],
+    plans: list[TempoPlanItem],
+    worklogs: list[TempoWorklog],
+    date_from: date,
+    date_to: date,
+    granularity: str,
+) -> TempoPlanVsActualReport:
+    """Compare planned (non-absence) hours with logged hours per user and period."""
+    buckets = buckets_for(granularity, date_from, date_to)
+    plans_by_user: dict[str, list[TempoPlanItem]] = defaultdict(list)
+    for plan in plans:
+        if not plan.is_absence:
+            plans_by_user[plan.user.key].append(plan)
+    worklogs_by_user: dict[str, list[TempoWorklog]] = defaultdict(list)
+    for worklog in worklogs:
+        worklogs_by_user[worklog.user.key].append(worklog)
+    return TempoPlanVsActualReport(
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        granularity=granularity,
+        users=[
+            TempoUserPlanVsActual(
+                user=user,
+                periods=[
+                    _plan_vs_actual_period(
+                        bucket,
+                        plans_by_user.get(user.key, []),
+                        worklogs_by_user.get(user.key, []),
+                    )
+                    for bucket in buckets
+                ],
+            )
+            for user in users
+        ],
+    )
+
+
 class _Deps(Protocol):
     def get_user_schedule(
         self, user: TempoUserRef, date_from: date, date_to: date
@@ -215,6 +304,14 @@ class _Deps(Protocol):
         issue_key: str | None = None,
         include_absences: bool = True,
     ) -> list[TempoPlanItem]: ...
+
+    def get_worklogs(
+        self,
+        users: list[TempoUserRef],
+        date_from: date,
+        date_to: date,
+        issue_key: str | None = None,
+    ) -> list[TempoWorklog]: ...
 
 
 class WorkloadMixin:
@@ -244,4 +341,21 @@ class WorkloadMixin:
             date_to,
             granularity,
             daily_limit_hours,
+        )
+
+    def get_plan_vs_actual(
+        self: _Deps,
+        scope: TempoScope,
+        date_from: date,
+        date_to: date,
+        granularity: str = "week",
+    ) -> TempoPlanVsActualReport:
+        """Fetch plans and worklogs for the scope, then compare them."""
+        buckets_for(granularity, date_from, date_to)
+        if not scope.users:
+            return build_plan_vs_actual([], [], [], date_from, date_to, granularity)
+        plans = self.get_plans(scope, date_from, date_to, include_absences=False)
+        worklogs = self.get_worklogs(scope.users, date_from, date_to)
+        return build_plan_vs_actual(
+            scope.users, plans, worklogs, date_from, date_to, granularity
         )
