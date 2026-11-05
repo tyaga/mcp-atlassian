@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,7 +11,12 @@ from fastmcp.client import FastMCPTransport
 from fastmcp.tools import Tool as FastMCPTool
 from mcp.types import Tool as MCPTool
 
-from mcp_atlassian.models.tempo import TempoTeam, TempoTeamMember, TempoUserRef
+from mcp_atlassian.models.tempo import (
+    TempoTeam,
+    TempoTeamMember,
+    TempoUserRef,
+    TempoUserSchedule,
+)
 from mcp_atlassian.servers.context import MainAppContext
 from mcp_atlassian.servers.main import AtlassianMCP, main_lifespan
 from mcp_atlassian.servers.tempo import tempo_mcp
@@ -129,3 +135,38 @@ class TestTeamTools:
         fake_tempo_fetcher.get_team_members.assert_called_once_with(
             team, role="qa", active_only=True
         )
+
+
+@pytest.mark.anyio
+class TestScheduleTool:
+    async def test_schedule_tool_resolves_users_and_calls_per_user(
+        self, tempo_client, fake_tempo_fetcher
+    ):
+        jane = TempoUserRef(key="JIRAUSER1001", username="jdoe", display_name="Jane")
+        alex = TempoUserRef(key="JIRAUSER1002", username="asmith", display_name="Alex")
+        fake_tempo_fetcher.resolve_users.return_value = [jane, alex]
+        fake_tempo_fetcher.get_user_schedule.side_effect = lambda user, *_: (
+            TempoUserSchedule(user=user, working_days=1, required_hours=8.0)
+        )
+        response = await tempo_client.call_tool(
+            "get_user_schedule",
+            {
+                "users": ["jdoe", "asmith"],
+                "date_from": "2026-05-04",
+                "date_to": "2026-05-04",
+            },
+        )
+        data = json.loads(response.content[0].text)
+        assert data["from"] == "2026-05-04"
+        assert [s["user"]["username"] for s in data["schedules"]] == ["jdoe", "asmith"]
+        assert fake_tempo_fetcher.get_user_schedule.call_count == 2
+        fake_tempo_fetcher.get_user_schedule.assert_any_call(
+            jane, date(2026, 5, 4), date(2026, 5, 4)
+        )
+
+    async def test_schedule_tool_rejects_bad_window(self, tempo_client):
+        with pytest.raises(Exception, match="date_to"):
+            await tempo_client.call_tool(
+                "get_user_schedule",
+                {"users": ["jdoe"], "date_from": "2026-05-04", "date_to": "bad"},
+            )

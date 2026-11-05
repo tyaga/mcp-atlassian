@@ -12,6 +12,7 @@ from pydantic import Field
 from mcp_atlassian.servers.async_utils import run_jira_fetcher_call
 from mcp_atlassian.servers.dependencies import get_tempo_fetcher
 from mcp_atlassian.servers.error_handling import ErrorPreservingFastMCP
+from mcp_atlassian.tempo.common import parse_window
 from mcp_atlassian.tempo.teams import team_summary
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,25 @@ ROLE_PARAM = Annotated[
         description=(
             "Keep only members whose team role contains this text "
             "(case-insensitive), e.g. 'automation'."
+        )
+    ),
+]
+USERS_PARAM = Annotated[
+    list[str],
+    Field(
+        description=(
+            "User identifiers: username, user key, display name or e-mail. "
+            "Each must resolve to exactly one Jira user."
+        )
+    ),
+]
+DATE_FROM_PARAM = Annotated[str, Field(description="Start date, YYYY-MM-DD.")]
+DATE_TO_PARAM = Annotated[
+    str,
+    Field(
+        description=(
+            "End date, YYYY-MM-DD, inclusive. The window may span at most "
+            "TEMPO_MAX_WINDOW_DAYS days (default 92)."
         )
     ),
 ]
@@ -91,5 +111,37 @@ async def get_team_members(
         {
             "team": team_summary(resolved),
             "members": [member.to_simplified_dict() for member in members],
+        }
+    )
+
+
+@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+async def get_user_schedule(
+    ctx: Context,
+    users: USERS_PARAM,
+    date_from: DATE_FROM_PARAM,
+    date_to: DATE_TO_PARAM,
+) -> str:
+    """Get working days, weekends and holidays for users.
+
+    Day ``type`` is ``WORKING_DAY``, ``HOLIDAY``, ``NON_WORKING_DAY`` or
+    ``HOLIDAY_AND_NON_WORKING_DAY``; ``required_hours`` is the daily norm.
+
+    Returns:
+        JSON ``{"from", "to", "schedules": [{user, working_days,
+        required_hours, days: [{day, type, required_hours, holiday_name}]}]}``.
+    """
+    start, end = parse_window(date_from, date_to)
+    tempo = await get_tempo_fetcher(ctx)
+    resolved = await run_jira_fetcher_call(tempo.resolve_users, users)
+    schedules = [
+        await run_jira_fetcher_call(tempo.get_user_schedule, user, start, end)
+        for user in resolved
+    ]
+    return _dump(
+        {
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            "schedules": [schedule.to_simplified_dict() for schedule in schedules],
         }
     )
