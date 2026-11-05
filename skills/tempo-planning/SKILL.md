@@ -11,6 +11,10 @@ the Jira connection. Reading tools never write; the plan-writing tools
 `tempo_delete_plan`) write to Tempo Planner only, never to Jira issues or
 worklogs, and are blocked in read-only mode.
 
+If a `tempo_*` tool you need is missing, its toolset is not enabled: ask the
+user to add `tempo_teams`, `tempo_planning` (reading) or `tempo_write`
+(plan writing) to `TOOLSETS` in the server configuration.
+
 ## Pick the tool
 
 | Question | Tool | Key arguments |
@@ -23,7 +27,7 @@ worklogs, and are blocked in read-only mode.
 | How loaded is the team, who is free, who is overbooked, who is absent? | `tempo_get_workload` | `team` or `users`, dates, `granularity`, `role`, `daily_limit_hours` |
 | Plan vs. fact per week | `tempo_get_plan_vs_actual` | `team` or `users`, dates, `granularity` |
 | Put an issue into someone's plan | `tempo_plan_work` | `user`, `issue_key`, `date_from`, `date_to`, `hours_per_day` or `total_hours`, `dry_run` |
-| Plan several issues / a whole feature | `tempo_bulk_plan_work` | `items`, `atomic`, `dry_run` |
+| Plan several issues / a whole feature | `tempo_bulk_plan_work` | `items` (JSON string), `team`, `atomic`, `dry_run` |
 | Move, stretch or change hours of a plan | `tempo_update_plan` | `allocation_id`, new dates / hours, `dry_run` |
 | Remove a plan | `tempo_delete_plan` | `allocation_id` |
 
@@ -105,11 +109,20 @@ worklogs; mention them separately instead of calling them "not logged".
    `timeoriginalestimate`, links and blockers. Issues without an estimate go
    to a separate list for the user — do not plan them.
 2. Order the issues so that blockers come before what they block.
-3. `tempo_bulk_plan_work(items=[{user, issue_key, date_from,
-   total_hours: <estimate in hours>}, ...])` — dry run, `atomic=true`. Items are
-   placed in order, so each starts in the free hours left by the previous
-   ones. For a dependency, set the dependent item's `date_from` after the
-   blocker's last planned day from the dry-run result.
+3. `tempo_bulk_plan_work` with `items` as a **JSON string** (not an array),
+   dry run, `atomic=true`:
+
+   ```
+   items='[{"user": "jdoe", "issue_key": "PROJ-1", "date_from": "2026-03-02", "total_hours": 6},
+           {"user": "jdoe", "issue_key": "PROJ-2", "date_from": "2026-03-02", "total_hours": 10}]'
+   ```
+
+   `timeoriginalestimate` from Jira is in seconds: `total_hours = seconds / 3600`.
+   Items are placed in order, so each starts in the free hours left by the
+   previous ones. For a dependency, set the dependent item's `date_from` after
+   the blocker's last planned day from the dry-run result. To pick issues by a
+   summary prefix such as "[Client]", filter the `jira_search` results by
+   summary.
 4. Show the plan per person and day, plus every conflict. On `does_not_fit`,
    offer a later `date_to`, another assignee, or fewer hours.
 5. After the user confirms, call again with `dry_run=false`. Report the
@@ -135,6 +148,11 @@ worklogs; mention them separately instead of calling them "not logged".
   shown in the dry run; then list the people whose schedule now needs
   adjusting (from `days` with `status_after: overbooked`). Absence hours
   always use up capacity: planning over a full-day vacation needs both flags.
+- **Reading a bulk result.** Top level: `ok` (no conflicts anywhere),
+  `written` (something reached Tempo), `error`, `rolled_back`. Per item
+  `status`: `planned` (passes, would be written), `created` (written; ids in
+  `allocations[].allocation_id`), `skipped` (conflict or invalid input, see
+  `conflicts`), `failed` (Tempo rejected the write, see `error`).
 - **Partial failures.** If Tempo fails mid-write, the result has `error`
   with the allocation ids already created. Tell the user exactly which ones
   exist; do not simply retry (the retry would see them as existing load and
@@ -142,13 +160,18 @@ worklogs; mention them separately instead of calling them "not logged".
   (`rolled_back`).
 - **Team scope.** Every plan belongs to a Tempo team. If the user is in one
   team it is used automatically; otherwise the tool returns the list —
-  ask which team, then pass `team`.
+  ask which team, then pass `team`. In `tempo_bulk_plan_work` one `team`
+  applies to every item; people whose plans belong to different teams need
+  separate calls.
 - **Plan a task for a whole team at N hours each**:
   `tempo_get_team_members(team)` → `tempo_bulk_plan_work` with one item per
   member (`hours_per_day=N`, same dates), `atomic=false` if the user wants
   the conflict-free part written anyway.
 - **Edit / delete** need `allocation_id` — take it from `tempo_get_plans`.
   Confirm deletions with the user; `tempo_delete_plan` has no dry run.
+  `tempo_update_plan` changes only team-scoped issue plans that skip
+  non-working days; for project-level plans or plans that include weekends
+  it returns an error — send the user to Tempo for those.
 - `daily_limit_hours` (default 8) lowers capacity for validation, e.g. 6 for
   a focus-factor plan.
 
