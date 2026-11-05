@@ -17,6 +17,7 @@ from mcp_atlassian.models.tempo import (
     TempoTeamMember,
     TempoUserRef,
     TempoUserSchedule,
+    TempoWorklog,
 )
 from mcp_atlassian.servers.context import MainAppContext
 from mcp_atlassian.servers.main import AtlassianMCP, main_lifespan
@@ -211,3 +212,27 @@ class TestPlansTool:
                 "get_plans",
                 {"users": ["jdoe"], "date_from": "2026-01-01", "date_to": "2026-06-30"},
             )
+
+
+@pytest.mark.anyio
+class TestWorklogsTool:
+    async def test_get_worklogs_tool(self, tempo_client, fake_tempo_fetcher):
+        jane = TempoUserRef(key="JIRAUSER1001", username="jdoe", display_name="Jane")
+        scope = TempoScope(team=None, users=[jane])
+        fake_tempo_fetcher.resolve_scope.return_value = scope
+        fake_tempo_fetcher.get_worklogs.return_value = [
+            TempoWorklog(
+                worklog_id=1, day="2026-03-02", user=jane, issue_key="PROJ-1", hours=2.0
+            )
+        ]
+        response = await tempo_client.call_tool(
+            "get_worklogs",
+            {"users": ["jdoe"], "date_from": "2026-03-02", "date_to": "2026-03-03"},
+        )
+        data = json.loads(response.content[0].text)
+        assert "team" not in data
+        assert data["users"][0]["username"] == "jdoe"
+        assert data["worklogs"][0]["hours"] == 2.0
+        fake_tempo_fetcher.get_worklogs.assert_called_once_with(
+            [jane], date(2026, 3, 2), date(2026, 3, 3), issue_key=None
+        )

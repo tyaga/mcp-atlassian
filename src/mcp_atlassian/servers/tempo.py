@@ -225,3 +225,34 @@ async def get_plans(
             "plans": [plan.to_simplified_dict() for plan in plans],
         }
     )
+
+
+@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+async def get_worklogs(
+    ctx: Context,
+    date_from: DATE_FROM_PARAM,
+    date_to: DATE_TO_PARAM,
+    team: TEAM_OPT_PARAM = None,
+    users: USERS_OPT_PARAM = None,
+    issue_key: ISSUE_KEY_PARAM = None,
+) -> str:
+    """Get logged work (Tempo worklogs) for a team or a list of users.
+
+    Returns:
+        JSON ``{"from", "to", "team"?, "users", "worklogs": [{worklog_id, day,
+        user, issue_key, summary, project_key, hours, comment}]}``.
+    """
+    start, end = parse_window(date_from, date_to)
+    tempo = await get_tempo_fetcher(ctx)
+    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users)
+    worklogs = await run_jira_fetcher_call(
+        tempo.get_worklogs, scope.users, start, end, issue_key=issue_key
+    )
+    return _dump(
+        {
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            **_scope_header(scope),
+            "worklogs": [worklog.to_simplified_dict() for worklog in worklogs],
+        }
+    )
