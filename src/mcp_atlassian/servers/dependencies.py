@@ -21,6 +21,7 @@ from starlette.requests import Request
 from mcp_atlassian.confluence import ConfluenceConfig, ConfluenceFetcher
 from mcp_atlassian.jira import JiraConfig, JiraFetcher
 from mcp_atlassian.servers.context import MainAppContext
+from mcp_atlassian.tempo import TempoFetcher
 from mcp_atlassian.utils.env import (
     get_header_names,
     is_env_ssl_verify,
@@ -1078,3 +1079,23 @@ async def get_confluence_fetcher(ctx: Context) -> ConfluenceFetcher:
         ValueError: If configuration or credentials are invalid.
     """
     return await _get_fetcher(ctx, _confluence_spec())
+
+
+async def get_tempo_fetcher(ctx: Context) -> TempoFetcher:
+    """Return a ``TempoFetcher`` bound to the current Jira fetcher.
+
+    Tempo has no credentials of its own: the fetcher wraps whatever Jira
+    fetcher the request resolves to. Inside an HTTP request the wrapper is
+    cached on ``request.state`` for as long as the Jira fetcher stays the same.
+    """
+    jira = await get_jira_fetcher(ctx)
+    try:
+        request = get_http_request()
+    except RuntimeError:
+        return TempoFetcher(jira)
+    cached = getattr(request.state, "tempo_fetcher", None)
+    if isinstance(cached, TempoFetcher) and cached.jira is jira:
+        return cached
+    fetcher = TempoFetcher(jira)
+    request.state.tempo_fetcher = fetcher
+    return fetcher

@@ -47,6 +47,7 @@ from .context import MainAppContext
 from .error_handling import ErrorPreservingFastMCP
 from .jira import jira_mcp
 from .oauth_proxy import HardenedOAuthProxy, parse_env_list
+from .tempo import tempo_mcp
 
 logger = logging.getLogger("mcp-atlassian.server.main")
 
@@ -333,7 +334,9 @@ class AtlassianMCP(ErrorPreservingFastMCP[MainAppContext]):
         header_based_services = ctx["header_based_services"]
         tool_tags = tool_obj.tags
 
-        is_jira_tool = "jira" in tool_tags
+        # Tempo Server/DC rides on the Jira session, so Tempo tools follow
+        # Jira availability.
+        is_jira_tool = "jira" in tool_tags or "tempo" in tool_tags
         is_confluence_tool = "confluence" in tool_tags
         if app_lifespan_state:
             jira_available = (
@@ -921,6 +924,7 @@ main_mcp = AtlassianMCP(
 )
 main_mcp.mount(jira_mcp, namespace="jira")
 main_mcp.mount(confluence_mcp, namespace="confluence")
+main_mcp.mount(tempo_mcp, namespace="tempo")
 
 
 @main_mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)

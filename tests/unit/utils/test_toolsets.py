@@ -39,7 +39,7 @@ class TestGetEnabledToolsets:
         result = get_enabled_toolsets()
         assert result is not None
         assert result == set(ALL_TOOLSETS.keys())
-        assert len(result) == 25
+        assert len(result) == 27
 
     def test_all_keyword_case_insensitive(self, monkeypatch):
         """Test 'ALL' keyword is case-insensitive."""
@@ -47,7 +47,7 @@ class TestGetEnabledToolsets:
         result = get_enabled_toolsets()
         assert result is not None
         assert result == set(ALL_TOOLSETS.keys())
-        assert len(result) == 25
+        assert len(result) == 27
 
     def test_default_keyword(self, monkeypatch):
         """Test 'default' keyword returns 6 default toolset names."""
@@ -98,15 +98,17 @@ class TestGetEnabledToolsets:
         assert DEFAULT_TOOLSETS == expected_defaults
 
     def test_all_toolsets_count(self):
-        """Verify ALL_TOOLSETS has exactly 25 entries."""
-        assert len(ALL_TOOLSETS) == 25
+        """Verify ALL_TOOLSETS has exactly 27 entries."""
+        assert len(ALL_TOOLSETS) == 27
 
     def test_all_toolsets_contains_jira_and_confluence(self):
         """Verify ALL_TOOLSETS has both Jira and Confluence toolsets."""
         jira_toolsets = {k for k in ALL_TOOLSETS if k.startswith("jira_")}
         confluence_toolsets = {k for k in ALL_TOOLSETS if k.startswith("confluence_")}
+        tempo_toolsets = {k for k in ALL_TOOLSETS if k.startswith("tempo_")}
         assert len(jira_toolsets) == 16
         assert len(confluence_toolsets) == 8
+        assert len(tempo_toolsets) == 2
 
 
 class TestShouldIncludeToolByToolset:
