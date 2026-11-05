@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import difflib
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Protocol
 
 from mcp_atlassian.models.tempo import TempoTeam, TempoTeamMember
@@ -57,8 +57,15 @@ class TeamsMixin:
         team: TempoTeam,
         role: str | None = None,
         active_only: bool = True,
+        window: tuple[date, date] | None = None,
     ) -> list[TempoTeamMember]:
-        """Return team members, optionally filtered by role substring and activity."""
+        """Return team members filtered by role, activity or a date window.
+
+        With ``window`` the membership is judged against those dates instead of
+        today: former members are kept for past windows and future members for
+        future ones, as long as the membership status is active. ``active_only``
+        is ignored when ``window`` is given.
+        """
         data = self.client.get(f"{TEAMS_PATH}/{team.id}/member")
         today = datetime.now(tz=timezone.utc).date()
         members = [
@@ -66,7 +73,9 @@ class TeamsMixin:
             for item in (data if isinstance(data, list) else [])
             if isinstance(item, dict)
         ]
-        if active_only:
+        if window is not None:
+            members = [m for m in members if m.overlaps(window[0], window[1])]
+        elif active_only:
             members = [member for member in members if member.active]
         if role:
             needle = role.strip().casefold()

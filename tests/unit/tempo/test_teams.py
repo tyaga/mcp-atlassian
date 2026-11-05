@@ -1,5 +1,7 @@
 """Tests for Tempo team operations."""
 
+from datetime import date
+
 import pytest
 
 from tests.unit.tempo.conftest import make_fetcher
@@ -84,3 +86,48 @@ class TestGetTeamMembers:
 
         everyone = fetcher.get_team_members(team, active_only=False)
         assert [m.user.username for m in everyone] == ["jdoe", "asmith", "bgone"]
+
+
+class TestMembersForWindow:
+    def _fetcher(self):
+        members = MEMBERS + [
+            _member("future", "JIRAUSER1004", "QA Engineer", dateFrom="2026-04-01"),
+            _member("former", "JIRAUSER1005", "QA Engineer", dateTo="2026-02-15"),
+        ]
+        return make_fetcher(
+            {
+                ("GET", "/rest/tempo-teams/2/team"): TEAMS,
+                ("GET", "/rest/tempo-teams/2/team/7/member"): members,
+            }
+        )
+
+    def test_window_in_past_includes_former_member(self):
+        fetcher = self._fetcher()
+        team = fetcher.resolve_team("7")
+        members = fetcher.get_team_members(
+            team, window=(date(2026, 2, 1), date(2026, 2, 28))
+        )
+        assert [m.user.username for m in members] == ["jdoe", "asmith", "former"]
+
+    def test_window_before_date_from_excludes_future_member(self):
+        fetcher = self._fetcher()
+        team = fetcher.resolve_team("7")
+        members = fetcher.get_team_members(
+            team, window=(date(2026, 3, 2), date(2026, 3, 8))
+        )
+        assert [m.user.username for m in members] == ["jdoe", "asmith"]
+        april = fetcher.get_team_members(
+            team, window=(date(2026, 4, 1), date(2026, 4, 7))
+        )
+        assert "future" in [m.user.username for m in april]
+
+    def test_window_excludes_inactive_membership_status(self):
+        fetcher = self._fetcher()
+        team = fetcher.resolve_team("7")
+        fetcher.client.routes[("GET", "/rest/tempo-teams/2/team/7/member")] = [  # type: ignore[attr-defined]
+            _member("paused", "JIRAUSER1006", "QA Engineer", status="inactive")
+        ]
+        assert (
+            fetcher.get_team_members(team, window=(date(2026, 3, 2), date(2026, 3, 8)))
+            == []
+        )

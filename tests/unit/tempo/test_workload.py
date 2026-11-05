@@ -302,3 +302,48 @@ class TestWorkloadMixin:
         assert [c["user"] for c in schedule_calls] == ["jdoe", "asmith"]
         assert report.users[0].periods[0].planned_hours == 1.0
         assert report.users[1].periods[0].status == "free"
+
+
+class TestAbsenceRegressions:
+    def test_absence_under_lower_daily_limit_is_absent_not_overbooked(self):
+        report = _report(
+            [_plan(JANE, "2026-03-03", "PROJ-9", 8.0, absence=True)], limit=6.0
+        )
+        day = _day(report, "2026-03-03")
+        assert (day.status, day.overbooked_hours, day.free_hours) == (
+            "absent",
+            0.0,
+            0.0,
+        )
+        assert report.summary["overbooked"] == []
+        assert report.summary["absent"] == [
+            {"user": JANE.to_simplified_dict(), "days": ["2026-03-03"]}
+        ]
+
+    def test_absence_on_non_working_day_is_absent_not_overbooked(self):
+        report = _report([_plan(JANE, "2026-03-07", "PROJ-9", 8.0, absence=True)])
+        day = _day(report, "2026-03-07")
+        assert (day.status, day.overbooked_hours) == ("absent", 0.0)
+
+    def test_partial_week_absence_listed_in_summary_at_week_granularity(self):
+        plans = [
+            _plan(JANE, f"2026-03-0{d}", "PROJ-9", 8.0, absence=True) for d in (2, 3, 4)
+        ]
+        report = _report(plans, granularity="week")
+        week = report.users[0].periods[0]
+        assert week.status == "partial"
+        assert report.summary["absent"] == [
+            {
+                "user": JANE.to_simplified_dict(),
+                "days": ["2026-03-02", "2026-03-03", "2026-03-04"],
+            }
+        ]
+        assert report.summary["free_capacity"] == [
+            {"user": JANE.to_simplified_dict(), "free_hours": 8.0}
+        ]
+
+    def test_summary_overbooked_lists_dates_at_week_granularity(self):
+        report = _report([_plan(JANE, "2026-03-05", "PROJ-1", 9.0)], granularity="week")
+        assert report.summary["overbooked"] == [
+            {"user": JANE.to_simplified_dict(), "days": ["2026-03-05"]}
+        ]

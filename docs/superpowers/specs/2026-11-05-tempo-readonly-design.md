@@ -19,7 +19,7 @@ will reuse.
 
 - Writing or editing Tempo plans or worklogs.
 - Tempo Cloud (`api.tempo.io`) — only the Server/DC REST API under the Jira
-  base URL is supported.
+  base URL is supported; Tempo tools are hidden when Jira is Cloud.
 - CSV export/import, deep links into Tempo UI screens — these are Tempo UI
   features, not MCP concerns.
 - A Jira group-members tool: `GET /rest/api/2/group/member` requires Jira
@@ -97,6 +97,8 @@ src/mcp_atlassian/servers/tempo.py   tempo_mcp + 7 tools
   match or several matches → `ValueError` naming the identifier and candidates.
 - `team`: numeric id or name. Name matching is case-insensitive after
   trimming whitespace (team names in Tempo may carry trailing spaces).
+  For windowed tools, members are selected whose active membership overlaps
+  the window, so past windows include people who have since left.
 - Exactly one of `team` / `users` is required where both are accepted.
   When `team` is given together with `role`, members are filtered by role
   substring (case-insensitive) before any data is fetched.
@@ -173,19 +175,21 @@ All tools live in `servers/tempo.py` and return a JSON string.
   - `capacity_hours = min(schedule.required_hours, daily_limit_hours)`
   - `planned_hours` = non-absence plan hours, `absence_hours` = absence hours
   - `free_hours = max(capacity − absence − planned, 0)`
-  - `overbooked_hours = max(planned + absence − capacity, 0)`
+  - `overbooked_hours = max(planned − max(capacity − absence, 0), 0)` — an
+    absence alone never overbooks a day
   - `status`:
     - `non_working` if capacity = 0 and planned = 0
     - `overbooked` if overbooked_hours > 0 (including anything planned on a
       non-working day)
-    - `absent` if absence ≥ capacity
+    - `absent` if absence > 0 and (planned = 0 or absence ≥ capacity)
     - `free` if planned = 0
     - `full` if free = 0
     - `partial` otherwise
   - `items: [{issue_key, summary, hours, is_absence}]`
 - `week` buckets are ISO weeks labelled `YYYY-Www` with `from`/`to`; hours are
   summed, `status` is `overbooked` if any day is overbooked, else `absent` if
-  all working days are absent, else `free`/`partial`/`full` by `free_hours`.
+  all working days are absent, else `free` when nothing is planned and no
+  absence, else `full`/`partial` by `free_hours`.
   `total` is one bucket for the whole window.
 - Output:
 
@@ -195,7 +199,7 @@ All tools live in `servers/tempo.py` and return a JSON string.
   "users": [{user, role, periods: [{period, from, to, capacity_hours,
              planned_hours, absence_hours, free_hours, overbooked_hours,
              status, items}]}],
-  "summary": {
+  "summary": {                                 # days are always calendar dates
     "overbooked": [{user, days: [...]}],
     "free_capacity": [{user, free_hours}],      # free_hours > 0, sorted desc
     "absent": [{user, days: [...]}]

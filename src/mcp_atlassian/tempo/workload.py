@@ -22,7 +22,7 @@ from mcp_atlassian.models.tempo import (
     TempoWorklog,
 )
 
-from .common import Bucket, buckets_for, seconds_to_hours
+from .common import Bucket, buckets_for, day_buckets, seconds_to_hours
 from .scope import TempoScope
 
 
@@ -38,7 +38,13 @@ class _DayFigures:
 
     @property
     def overbooked(self) -> float:
-        return max(self.planned + self.absence - self.capacity, 0.0)
+        """Work planned beyond what the absence leaves of the capacity.
+
+        An absence can never overbook a day on its own: a full-day leave
+        recorded at the schedule norm is still just a day off.
+        """
+        remaining = max(self.capacity - self.absence, 0.0)
+        return max(self.planned - remaining, 0.0)
 
     @property
     def status(self) -> str:
@@ -46,7 +52,7 @@ class _DayFigures:
             return "non_working"
         if self.overbooked > 0:
             return "overbooked"
-        if self.capacity > 0 and self.absence >= self.capacity:
+        if self.absence > 0 and (self.planned == 0 or self.absence >= self.capacity):
             return "absent"
         if self.planned == 0:
             return "free"
@@ -79,9 +85,9 @@ def _bucket_status(days: list[_DayFigures], free: float) -> str:
     if any(d.overbooked > 0 for d in days):
         return "overbooked"
     working = [d for d in days if d.capacity > 0]
-    if working and all(d.absence >= d.capacity for d in working):
+    if working and all(d.status == "absent" for d in working):
         return "absent"
-    if all(d.planned == 0 for d in days):
+    if all(d.planned == 0 and d.absence == 0 for d in days):
         return "free"
     if free == 0:
         return "full"
@@ -155,7 +161,7 @@ def build_workload(
 
     Per day: ``capacity = min(schedule norm, daily_limit_hours)``,
     ``free = max(capacity - absence - planned, 0)``,
-    ``overbooked = max(planned + absence - capacity, 0)``.
+    ``overbooked = max(planned - max(capacity - absence, 0), 0)``.
     """
     buckets = buckets_for(granularity, date_from, date_to)
     plans_by_user: dict[str, dict[str, list[TempoPlanItem]]] = defaultdict(
@@ -169,23 +175,28 @@ def build_workload(
     absent: list[dict[str, Any]] = []
     free_capacity: list[dict[str, Any]] = []
     for user in users:
+        schedule = schedules.get(user.key)
+        user_plans = plans_by_user.get(user.key, {})
         periods = [
-            _period(
-                bucket,
-                schedules.get(user.key),
-                plans_by_user.get(user.key, {}),
-                daily_limit_hours,
-            )
+            _period(bucket, schedule, user_plans, daily_limit_hours)
             for bucket in buckets
         ]
         user_reports.append(
             TempoUserWorkload(user=user, role=roles.get(user.key, ""), periods=periods)
         )
         user_dict = user.to_simplified_dict()
-        over_days = [p.period for p in periods if p.status == "overbooked"]
+        # Summary lists always name calendar days, whatever the granularity,
+        # so a three-day leave inside a week is still reported.
+        day_statuses = {
+            label: _day_figures(
+                schedule, user_plans.get(label, []), start, daily_limit_hours
+            ).status
+            for label, start, _ in day_buckets(date_from, date_to)
+        }
+        over_days = [d for d, status in day_statuses.items() if status == "overbooked"]
         if over_days:
             overbooked.append({"user": user_dict, "days": over_days})
-        absent_days = [p.period for p in periods if p.status == "absent"]
+        absent_days = [d for d, status in day_statuses.items() if status == "absent"]
         if absent_days:
             absent.append({"user": user_dict, "days": absent_days})
         free_total = round(sum(p.free_hours for p in periods), 2)

@@ -1,5 +1,7 @@
 """Tests for Tempo user resolution and scope."""
 
+from datetime import date
+
 import pytest
 
 from mcp_atlassian.models.jira.common import JiraUser
@@ -91,6 +93,31 @@ class TestResolveScope:
         assert scope.team is not None and scope.team.id == 7
         assert [u.username for u in scope.users] == ["asmith"]
         assert scope.roles == {"JIRAUSER1002": "QA Automation"}
+
+    def test_resolve_scope_passes_window_to_members(self):
+        fetcher = self._fetcher()
+        fetcher.client.routes[("GET", "/rest/tempo-teams/2/team/7/member")] = [  # type: ignore[attr-defined]
+            *MEMBERS,
+            {
+                "member": {
+                    "name": "former",
+                    "key": "JIRAUSER1005",
+                    "displayname": "Former",
+                    "activeInJira": True,
+                },
+                "membership": {
+                    "role": {"name": "QA Engineer"},
+                    "status": "active",
+                    "availability": "100",
+                    "dateFrom": "",
+                    "dateTo": "2026-02-15",
+                },
+            },
+        ]
+        scope = fetcher.resolve_scope(
+            "7", None, window=(date(2026, 2, 1), date(2026, 2, 28))
+        )
+        assert "JIRAUSER1005" in scope.roles
 
     def test_resolve_scope_users(self):
         fetcher = self._fetcher()

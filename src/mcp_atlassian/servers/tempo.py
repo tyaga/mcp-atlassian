@@ -94,7 +94,10 @@ def _dump(data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_teams"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_teams"},
+    annotations={"title": "List Tempo Teams", "readOnlyHint": True},
+)
 async def list_teams(
     ctx: Context,
     query: Annotated[
@@ -112,7 +115,10 @@ async def list_teams(
     return _dump({"teams": [team.to_simplified_dict() for team in teams]})
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_teams"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_teams"},
+    annotations={"title": "Get Tempo Team Members", "readOnlyHint": True},
+)
 async def get_team_members(
     ctx: Context,
     team: TEAM_PARAM,
@@ -146,7 +152,10 @@ async def get_team_members(
     )
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_planning"},
+    annotations={"title": "Get Tempo User Schedule", "readOnlyHint": True},
+)
 async def get_user_schedule(
     ctx: Context,
     users: USERS_PARAM,
@@ -178,7 +187,10 @@ async def get_user_schedule(
     )
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_planning"},
+    annotations={"title": "Get Tempo Plans", "readOnlyHint": True},
+)
 async def get_plans(
     ctx: Context,
     date_from: DATE_FROM_PARAM,
@@ -208,7 +220,9 @@ async def get_plans(
     """
     start, end = parse_window(date_from, date_to)
     tempo = await get_tempo_fetcher(ctx)
-    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users)
+    scope = await run_jira_fetcher_call(
+        tempo.resolve_scope, team, users, window=(start, end)
+    )
     plans = await run_jira_fetcher_call(
         tempo.get_plans,
         scope,
@@ -227,7 +241,10 @@ async def get_plans(
     )
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_planning"},
+    annotations={"title": "Get Tempo Worklogs", "readOnlyHint": True},
+)
 async def get_worklogs(
     ctx: Context,
     date_from: DATE_FROM_PARAM,
@@ -244,7 +261,9 @@ async def get_worklogs(
     """
     start, end = parse_window(date_from, date_to)
     tempo = await get_tempo_fetcher(ctx)
-    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users)
+    scope = await run_jira_fetcher_call(
+        tempo.resolve_scope, team, users, window=(start, end)
+    )
     worklogs = await run_jira_fetcher_call(
         tempo.get_worklogs, scope.users, start, end, issue_key=issue_key
     )
@@ -263,7 +282,10 @@ GRANULARITY_DESC = (
 )
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_planning"},
+    annotations={"title": "Get Tempo Workload", "readOnlyHint": True},
+)
 async def get_workload(
     ctx: Context,
     date_from: DATE_FROM_PARAM,
@@ -285,9 +307,11 @@ async def get_workload(
     """Compute planned load, free capacity and overbooking per user and period.
 
     Per day: capacity = min(schedule norm, daily_limit_hours); free =
-    capacity - absence - planned (floored at 0); overbooked = planned + absence
-    - capacity (floored at 0). Status is one of non_working, overbooked, absent,
-    free, partial, full. Absences are inferred from plan item text.
+    capacity - absence - planned (floored at 0); overbooked = planned beyond
+    what the absence leaves of the capacity (floored at 0). Status is one of
+    non_working, overbooked, absent, free, partial, full. Absences are inferred
+    from plan item text. Team members are selected by membership dates within
+    the window. The summary lists name calendar days whatever the granularity.
 
     Returns:
         JSON ``{"from", "to", "granularity", "daily_limit_hours", "team"?,
@@ -297,7 +321,9 @@ async def get_workload(
     """
     start, end = parse_window(date_from, date_to)
     tempo = await get_tempo_fetcher(ctx)
-    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users, role=role)
+    scope = await run_jira_fetcher_call(
+        tempo.resolve_scope, team, users, role=role, window=(start, end)
+    )
     report = await run_jira_fetcher_call(
         tempo.get_workload,
         scope,
@@ -312,7 +338,10 @@ async def get_workload(
     return _dump(payload)
 
 
-@tempo_mcp.tool(tags={"tempo", "read", "toolset:tempo_planning"})
+@tempo_mcp.tool(
+    tags={"tempo", "read", "toolset:tempo_planning"},
+    annotations={"title": "Get Tempo Plan vs Actual", "readOnlyHint": True},
+)
 async def get_plan_vs_actual(
     ctx: Context,
     date_from: DATE_FROM_PARAM,
@@ -324,6 +353,10 @@ async def get_plan_vs_actual(
     """Compare planned hours (Tempo Planner) with logged hours (Tempo worklogs).
 
     Absence plan items are excluded. ``delta_hours`` is logged minus planned.
+    Plans made on a whole project (plan_type PROJECT) are keyed by the project
+    key and never match issue-level worklogs, so they appear in
+    ``planned_not_logged`` while the matching worklogs appear in
+    ``logged_unplanned``; the period totals are still correct.
 
     Returns:
         JSON ``{"from", "to", "granularity", "team"?, "users": [{user, periods:
@@ -332,7 +365,9 @@ async def get_plan_vs_actual(
     """
     start, end = parse_window(date_from, date_to)
     tempo = await get_tempo_fetcher(ctx)
-    scope = await run_jira_fetcher_call(tempo.resolve_scope, team, users)
+    scope = await run_jira_fetcher_call(
+        tempo.resolve_scope, team, users, window=(start, end)
+    )
     report = await run_jira_fetcher_call(
         tempo.get_plan_vs_actual, scope, start, end, granularity=granularity
     )

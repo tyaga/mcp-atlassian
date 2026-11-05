@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Protocol
 
 from mcp_atlassian.jira import JiraFetcher
@@ -17,7 +18,11 @@ class _HasJira(Protocol):
     def resolve_team(self, team: str) -> TempoTeam: ...
 
     def get_team_members(
-        self, team: TempoTeam, role: str | None = None, active_only: bool = True
+        self,
+        team: TempoTeam,
+        role: str | None = None,
+        active_only: bool = True,
+        window: tuple[date, date] | None = None,
     ) -> list[TempoTeamMember]: ...
 
 
@@ -97,13 +102,19 @@ class UsersMixin:
         team: str | None,
         users: list[str] | None,
         role: str | None = None,
+        window: tuple[date, date] | None = None,
     ) -> TempoScope:
-        """Build the query scope from exactly one of ``team`` / ``users``."""
+        """Build the query scope from exactly one of ``team`` / ``users``.
+
+        ``window`` selects team members by membership dates instead of today.
+        """
         if bool(team) == bool(users):
             raise ValueError("Provide exactly one of 'team' or 'users'")
         if team:
             resolved_team = self.resolve_team(team)
-            members = self.get_team_members(resolved_team, role=role, active_only=True)
+            members = self.get_team_members(
+                resolved_team, role=role, active_only=True, window=window
+            )
             return TempoScope(
                 team=resolved_team,
                 users=[member.user for member in members],

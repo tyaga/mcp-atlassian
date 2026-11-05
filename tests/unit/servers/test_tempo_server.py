@@ -199,7 +199,9 @@ class TestPlansTool:
         data = json.loads(response.content[0].text)
         assert data["team"] == {"id": 7, "name": "Platform QA"}
         assert data["plans"][0]["issue_key"] == "PROJ-1"
-        fake_tempo_fetcher.resolve_scope.assert_called_once_with("Platform QA", None)
+        fake_tempo_fetcher.resolve_scope.assert_called_once_with(
+            "Platform QA", None, window=(date(2026, 3, 2), date(2026, 3, 4))
+        )
         fake_tempo_fetcher.get_plans.assert_called_once_with(
             scope,
             date(2026, 3, 2),
@@ -268,7 +270,7 @@ class TestWorkloadTool:
         assert data["granularity"] == "week"
         assert data["summary"]["overbooked"] == []
         fake_tempo_fetcher.resolve_scope.assert_called_once_with(
-            "Platform QA", None, role="qa"
+            "Platform QA", None, role="qa", window=(date(2026, 3, 2), date(2026, 3, 8))
         )
         fake_tempo_fetcher.get_workload.assert_called_once_with(
             scope,
@@ -299,3 +301,31 @@ class TestPlanVsActualTool:
         fake_tempo_fetcher.get_plan_vs_actual.assert_called_once_with(
             scope, date(2026, 3, 2), date(2026, 3, 8), granularity="week"
         )
+
+
+class TestTempoToolAnnotations:
+    def test_every_tempo_tool_declares_read_only_hint(self, tempo_tools):
+        for name, tool in tempo_tools.items():
+            annotations = tool.annotations
+            assert annotations is not None, name
+            assert annotations.readOnlyHint is True, name
+            assert annotations.title, name
+
+
+@pytest.mark.anyio
+class TestTempoCloudGating:
+    async def test_tempo_tool_hidden_on_jira_cloud(self):
+        jira_config = MagicMock()
+        jira_config.is_cloud = True
+        server = _server_with(
+            MainAppContext(full_jira_config=jira_config, full_confluence_config=None)
+        )
+        assert await server._list_tools_mcp() == []
+
+    async def test_tempo_tool_listed_when_cloud_unknown(self):
+        jira_config = MagicMock()
+        jira_config.is_cloud = None
+        server = _server_with(
+            MainAppContext(full_jira_config=jira_config, full_confluence_config=None)
+        )
+        assert [t.name for t in await server._list_tools_mcp()] == ["tempo_list_teams"]

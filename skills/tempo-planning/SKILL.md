@@ -78,7 +78,7 @@ fact, and mention when a suspicious item (e.g. "Trip") was not caught.
 `tempo_get_workload(..., granularity="day")`, then keep periods whose
 `planned_hours <= N` and `status` is not `non_working` / `absent`.
 
-**Compare two directions** (e.g. "Automation" vs "Client+Server")
+**Compare two roles** (e.g. "Backend" vs "Frontend")
 Call `tempo_get_workload` twice with the same team and dates and different
 `role` values; compare `summary.free_capacity` and the totals.
 
@@ -90,6 +90,8 @@ team is unknown. Each row has `user`, `day`, `planned_hours`, `issue_url`.
 `tempo_get_plan_vs_actual(team=..., granularity="week")`. Report
 `delta_hours` per person, then `planned_not_logged` (planned work nobody
 logged) and `logged_unplanned` (unplanned work that consumed time).
+Plans made on a whole project (`plan_type: PROJECT`) never match issue
+worklogs; mention them separately instead of calling them "not logged".
 
 **Plan a feature into free slots** (planning itself is manual for now)
 1. Collect the issues with Jira tools (`jira_search`, `jira_get_issue`); keep
@@ -108,4 +110,8 @@ logged) and `logged_unplanned` (unplanned work that consumed time).
   needs Jira administrator rights on Server/DC); use Tempo teams instead.
 - Plan search is filtered server-side by team only; `users`-scoped calls
   fetch all plans in the window and filter locally, so keep windows short.
+- Team members are chosen by membership dates within the requested window,
+  so past windows include people who have since left the team.
+- Membership `availability` (e.g. 50%) is reported but does not reduce
+  capacity.
 - Tempo Cloud is not supported by these tools.

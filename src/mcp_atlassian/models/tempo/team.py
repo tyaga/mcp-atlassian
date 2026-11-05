@@ -46,7 +46,18 @@ class TempoTeamMember(ApiModel):
     availability: int = 100
     date_from: str = ""
     date_to: str = ""
+    status: str = "active"
     active: bool = True
+
+    def overlaps(self, date_from: date, date_to: date) -> bool:
+        """Whether an active membership covers any day of the window."""
+        if self.status != "active":
+            return False
+        if self.date_from and self.date_from > date_to.isoformat():
+            return False
+        if self.date_to and self.date_to < date_from.isoformat():
+            return False
+        return True
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any], **kwargs: Any) -> TempoTeamMember:
@@ -63,8 +74,9 @@ class TempoTeamMember(ApiModel):
         membership = data.get("membership") or {}
         role = membership.get("role") or {}
         date_to = str(membership.get("dateTo") or "")
+        status = str(membership.get("status") or "active")
         active = bool(member.get("activeInJira", True))
-        if str(membership.get("status") or "active") != "active":
+        if status != "active":
             active = False
         if date_to and date_to < today.isoformat():
             active = False
@@ -78,6 +90,7 @@ class TempoTeamMember(ApiModel):
             availability=availability,
             date_from=str(membership.get("dateFrom") or ""),
             date_to=date_to,
+            status=status,
             active=active,
         )
 
