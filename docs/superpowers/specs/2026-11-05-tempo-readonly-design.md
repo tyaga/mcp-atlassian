@@ -253,7 +253,7 @@ anonymised (`jdoe`, `JIRAUSER1001`, `Jane Doe`, team `Platform QA`,
 
 ## Assistant skill
 
-`skills/tempo-planning/SKILL.md` ships with the repository and explains how an
+A skill distributed separately from this repository explains how an
 assistant should use the tools: which tool answers which kind of question,
 identifier and date conventions, the 92-day window, the absence heuristic,
 how to combine `tempo_get_workload` with Jira issue tools for feature
