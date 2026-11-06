@@ -181,7 +181,8 @@ All tools live in `servers/tempo.py` and return a JSON string.
     - `non_working` if capacity = 0 and planned = 0
     - `overbooked` if overbooked_hours > 0 (including anything planned on a
       non-working day)
-    - `absent` if absence > 0 and (planned = 0 or absence ≥ capacity)
+    - `absent` if absence > 0 and absence ≥ capacity (a partial absence
+      leaves the day `partial` or `full`)
     - `free` if planned = 0
     - `full` if free = 0
     - `partial` otherwise

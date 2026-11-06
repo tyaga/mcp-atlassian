@@ -736,3 +736,78 @@ class TestUpdateRegressions:
             "key": "JIRAUSER1001",
             "type": "user",
         }  # type: ignore[attr-defined]
+
+
+class TestBulkRollbackReport:
+    def _items(self, n: int) -> list[dict]:
+        return [
+            {
+                "user": "jdoe",
+                "issue_key": f"PROJ-{100 + i}",
+                "date_from": f"2026-03-0{2 + i}",
+                "date_to": f"2026-03-0{2 + i}",
+                "hours_per_day": 2.0,
+            }
+            for i in range(n)
+        ]
+
+    def _fetcher(self, fail_on: int, undeletable: set[int]):
+        fetcher = _fetcher()
+        calls = {"n": 0}
+
+        def flaky(payload: dict) -> dict:
+            calls["n"] += 1
+            if calls["n"] == fail_on:
+                raise ValueError("Tempo API HTTP 500: boom")
+            return _allocation_response(payload, 900 + calls["n"])
+
+        def delete_route(allocation_id: int):
+            def handler(_: object) -> None:
+                if allocation_id in undeletable:
+                    raise ValueError("Tempo API HTTP 500: cannot delete")
+
+            return handler
+
+        fetcher.client.routes[("POST", ALLOC)] = flaky  # type: ignore[attr-defined]
+        for allocation_id in range(901, 910):
+            fetcher.client.routes[("DELETE", f"{ALLOC}/{allocation_id}")] = (  # type: ignore[attr-defined]
+                delete_route(allocation_id)
+            )
+        return fetcher
+
+    def test_statuses_after_full_rollback(self):
+        fetcher = self._fetcher(fail_on=2, undeletable=set())
+        result = fetcher.bulk_plan_work(self._items(3), dry_run=False, atomic=True)
+        assert [r["status"] for r in result["results"]] == [
+            "rolled_back",
+            "failed",
+            "not_written",
+        ]
+        assert result["rolled_back"] == [901]
+        assert result["allocation_ids_in_tempo"] == []
+        assert result["written"] is False
+        assert result["results"][0]["allocations"][0]["allocation_id"] is None
+
+    def test_partial_rollback_names_remaining_allocations(self):
+        fetcher = self._fetcher(fail_on=3, undeletable={902})
+        result = fetcher.bulk_plan_work(self._items(3), dry_run=False, atomic=True)
+        assert [r["status"] for r in result["results"]] == [
+            "rolled_back",
+            "rollback_failed",
+            "failed",
+        ]
+        assert result["rolled_back"] == [901]
+        assert result["allocation_ids_in_tempo"] == [902]
+        assert result["written"] is True
+        assert "902" in result["error"]
+
+    def test_non_atomic_reports_allocation_ids_in_tempo(self):
+        fetcher = self._fetcher(fail_on=2, undeletable=set())
+        result = fetcher.bulk_plan_work(self._items(3), dry_run=False, atomic=False)
+        assert [r["status"] for r in result["results"]] == [
+            "created",
+            "failed",
+            "created",
+        ]
+        assert result["allocation_ids_in_tempo"] == [901, 903]
+        assert "rolled_back" not in result

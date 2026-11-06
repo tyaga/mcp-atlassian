@@ -52,9 +52,9 @@ class _DayFigures:
             return "non_working"
         if self.overbooked > 0:
             return "overbooked"
-        if self.absence > 0 and (self.planned == 0 or self.absence >= self.capacity):
+        if self.absence > 0 and self.absence >= self.capacity:
             return "absent"
-        if self.planned == 0:
+        if self.planned == 0 and self.absence == 0:
             return "free"
         if self.free == 0:
             return "full"

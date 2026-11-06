@@ -347,3 +347,18 @@ class TestAbsenceRegressions:
         assert report.summary["overbooked"] == [
             {"user": JANE.to_simplified_dict(), "days": ["2026-03-05"]}
         ]
+
+
+class TestPartialAbsence:
+    def test_partial_absence_without_plans_is_partial(self):
+        report = _report([_plan(JANE, "2026-03-03", "PROJ-9", 2.0, absence=True)])
+        day = _day(report, "2026-03-03")
+        assert (day.status, day.free_hours, day.absence_hours) == ("partial", 6.0, 2.0)
+        assert report.summary["absent"] == []
+
+    def test_full_day_absence_is_absent(self):
+        report = _report([_plan(JANE, "2026-03-03", "PROJ-9", 8.0, absence=True)])
+        assert _day(report, "2026-03-03").status == "absent"
+        assert report.summary["absent"] == [
+            {"user": JANE.to_simplified_dict(), "days": ["2026-03-03"]}
+        ]

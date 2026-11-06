@@ -94,7 +94,10 @@ Items are validated in order; each accepted item's placements are added to
 the in-memory load before the next item is checked, so a fit item sees the
 slots an earlier item took. `atomic=true`: any conflict → nothing is
 written, every item reported; a Tempo failure while writing deletes the
-allocations this call created (`rolled_back`). `atomic=false`: conflict-free items are
+allocations this call created (`rolled_back`); items written before the
+failure become `rolled_back` (or `rollback_failed` when a delete fails),
+items after it `not_written`, and `allocation_ids_in_tempo` lists what is
+left in Tempo. `atomic=false`: conflict-free items are
 written, others reported as `skipped`. Output: `{"ok", "written",
 "results": [<plan_work output> + {"index", "status": "planned" |
 "created" | "skipped"}]}`.

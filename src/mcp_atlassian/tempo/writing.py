@@ -94,6 +94,12 @@ def _record_failure(result: TempoPlanResult, message: str) -> None:
     result.error = f"{message.rstrip('.')}. {tail}"
 
 
+def _allocation_ids(prep: _Prepared) -> list[int]:
+    return [
+        a.allocation_id for a in prep.result.allocations if a.allocation_id is not None
+    ]
+
+
 def _positive(value: float | None, name: str) -> float:
     if value is None or value <= 0:
         raise ValueError(f"{name} must be a positive number of hours")
@@ -398,29 +404,50 @@ class PlanWriteMixin:
         all_ok = all(p is not None and p.result.ok for p in prepared)
         summary: dict[str, Any] = {"ok": all_ok, "written": False}
         if not dry_run and (all_ok or not atomic):
-            created_ids: list[int] = []
+            in_tempo: list[int] = []
+            written_entries: list[tuple[_Prepared, dict[str, Any]]] = []
+            failed = False
             for prep, entry in zip(prepared, results, strict=True):
                 if prep is None or not prep.result.ok:
                     continue
+                if failed:
+                    entry["status"] = "not_written"
+                    continue
                 succeeded = PlanWriteMixin._write(self, prep)
-                created_ids.extend(
-                    a.allocation_id
-                    for a in prep.result.allocations
-                    if a.allocation_id is not None
-                )
+                in_tempo.extend(_allocation_ids(prep))
                 entry.update(prep.result.to_simplified_dict())
+                written_entries.append((prep, entry))
                 if succeeded:
                     entry["status"] = "created"
                     continue
                 entry["status"] = "failed"
                 summary["ok"] = False
                 summary["error"] = prep.result.error
-                if atomic:
-                    rolled_back = PlanWriteMixin._roll_back(self, created_ids)
-                    summary["rolled_back"] = rolled_back
-                    created_ids = [i for i in created_ids if i not in rolled_back]
-                    break
-            summary["written"] = bool(created_ids)
+                failed = atomic
+            if failed:
+                rolled_back = PlanWriteMixin._roll_back(self, in_tempo)
+                in_tempo = [i for i in in_tempo if i not in rolled_back]
+                summary["rolled_back"] = rolled_back
+                for prep, entry in written_entries:
+                    ids = _allocation_ids(prep)
+                    for draft in prep.result.allocations:
+                        if draft.allocation_id in rolled_back:
+                            draft.allocation_id = None
+                    entry["allocations"] = [
+                        a.to_simplified_dict() for a in prep.result.allocations
+                    ]
+                    if entry["status"] == "failed":
+                        continue
+                    left = [i for i in ids if i not in rolled_back]
+                    entry["status"] = "rollback_failed" if left else "rolled_back"
+                if in_tempo:
+                    summary["error"] = (
+                        f"{summary.get('error', '')} Rollback did not delete "
+                        f"allocations {', '.join(map(str, in_tempo))}; they remain "
+                        "in Tempo."
+                    ).strip()
+            summary["allocation_ids_in_tempo"] = in_tempo
+            summary["written"] = bool(in_tempo)
         summary["results"] = results
         return summary
 

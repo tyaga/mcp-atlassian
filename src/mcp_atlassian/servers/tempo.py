@@ -585,11 +585,15 @@ async def bulk_plan_work(
     """Plan several issues in Tempo Planner at once, with validation.
 
     With ``atomic=true`` a Tempo failure during writing deletes the
-    allocations this call already created (``rolled_back``).
+    allocations this call already created (``rolled_back``); items after the
+    failure are ``not_written``. ``allocation_ids_in_tempo`` lists what exists
+    in Tempo after the call, including allocations the rollback could not
+    delete (their items are ``rollback_failed``).
 
     Returns:
-        JSON ``{ok, written, error?, rolled_back?, results: [<plan_work result>
-        + {index, status: planned | created | skipped | failed}]}``.
+        JSON ``{ok, written, error?, rolled_back?, allocation_ids_in_tempo?,
+        results: [<plan_work result> + {index, status: planned | created |
+        skipped | failed | not_written | rolled_back | rollback_failed}]}``.
     """
     tempo = await get_tempo_fetcher(ctx)
     result = await run_jira_fetcher_call(
