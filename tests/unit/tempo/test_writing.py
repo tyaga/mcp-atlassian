@@ -154,7 +154,7 @@ class TestPlanWorkFixed:
         assert (result.ok, result.written) == (True, True)
         assert fetcher.created == [  # type: ignore[attr-defined]
             {
-                "assignee": {"key": "JIRAUSER1001", "type": "user"},
+                "assignee": {"key": "jdoe", "type": "user"},
                 "planItem": {"id": 4242, "type": "ISSUE"},
                 "scope": {"id": 7, "type": "team"},
                 "start": "2026-03-02",
@@ -450,7 +450,7 @@ class TestUpdate:
         assert fetcher.put_calls == [  # type: ignore[attr-defined]
             {
                 "id": 777,
-                "assignee": {"key": "JIRAUSER1001", "type": "user"},
+                "assignee": {"key": "jdoe", "type": "user"},
                 "planItem": {"id": 4242, "type": "ISSUE"},
                 "scope": {"id": 7, "type": "team"},
                 "start": "2026-03-02",
@@ -618,7 +618,7 @@ class TestReviewRegressions:
         assert result.ok is True
         assert result.days[0].added_hours == 4.0
 
-    def test_body_uses_user_key_and_checks_returned_assignee(self):
+    def test_body_uses_username_and_checks_returned_assignee(self):
         fetcher = _fetcher()
         fetcher.jira.get_user_profile_by_identifier.return_value = JiraUser(
             username="jdoe", user_key="JIRAUSER1001", display_name="Jane Doe"
@@ -631,7 +631,7 @@ class TestReviewRegressions:
             hours_per_day=1.0,
             dry_run=False,
         )
-        assert fetcher.created[0]["assignee"] == {"key": "JIRAUSER1001", "type": "user"}  # type: ignore[attr-defined]
+        assert fetcher.created[0]["assignee"] == {"key": "jdoe", "type": "user"}  # type: ignore[attr-defined]
 
     def test_mismatched_returned_assignee_is_an_error(self):
         fetcher = _fetcher()
@@ -729,11 +729,11 @@ class TestUpdateRegressions:
         with pytest.raises(ValueError, match="non-working"):
             fetcher.update_plan(777, hours_per_day=1.0)
 
-    def test_update_sends_user_key(self):
+    def test_update_sends_username(self):
         fetcher = self._fetcher(EXISTING)
         fetcher.update_plan(777, description="New", dry_run=False)
         assert fetcher.put_calls[0]["assignee"] == {
-            "key": "JIRAUSER1001",
+            "key": "jdoe",
             "type": "user",
         }  # type: ignore[attr-defined]
 

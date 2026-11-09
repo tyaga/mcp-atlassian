@@ -268,7 +268,7 @@ class TestTempoAllocation:
 
         allocation = TempoAllocation.from_api_response(ALLOCATION)
         assert allocation.to_request_body() == {
-            "assignee": {"key": "JIRAUSER1001", "type": "user"},
+            "assignee": {"key": "jdoe", "type": "user"},
             "planItem": {"id": 4242, "type": "ISSUE"},
             "scope": {"id": 7, "type": "team"},
             "start": "2026-03-02",

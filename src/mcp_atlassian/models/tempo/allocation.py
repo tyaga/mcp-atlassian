@@ -57,12 +57,12 @@ class TempoAllocation(ApiModel):
     def to_request_body(self) -> dict[str, Any]:
         """Body for ``POST``/``PUT /rest/tempo-planning/1/allocation``.
 
-        Tempo accepts a username or a user key as ``assignee.key``; the user
-        key is sent because a username can collide with another user's legacy
-        key after a rename.
+        Tempo resolves ``assignee.key`` as a username. A user key works only
+        for legacy keys that look like usernames; ``JIRAUSER…`` keys are
+        rejected with ``USER_NOT_FOUND``.
         """
         return {
-            "assignee": {"key": self.user.key or self.user.username, "type": "user"},
+            "assignee": {"key": self.user.username or self.user.key, "type": "user"},
             "planItem": {"id": self.issue_id, "type": self.plan_item_type},
             "scope": {"id": self.team_id, "type": self.scope_type},
             "start": self.start,
